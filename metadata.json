@@ -1,0 +1,6 @@
+{
+  "name": "Tech4Geeky Sales",
+  "description": "Mobile-focused sales tracking and logging dashboard for Tech4Geeky services: Video Editing, Web Site development, PC Repair, and Graphic Designing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
