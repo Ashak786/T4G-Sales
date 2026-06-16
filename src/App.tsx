@@ -156,35 +156,50 @@ export default function App() {
     handleCalcClear();
   }, [isAddOpen, isEditOpen]);
 
-  // Group sales for sales performance bar chart
+  // Group sales for sales performance bar chart by Month
   const chartData = useMemo(() => {
-    const dayGroups: { [key: string]: number } = {};
+    const monthGroups: { [key: string]: { label: string; amount: number; yearMonthVal: string } } = {};
     sales.forEach(sale => {
       if (sale.status === 'Paid' || sale.status === 'Pending') {
         const dateStr = sale.sale_date;
         try {
           const date = new Date(dateStr);
-          const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-          dayGroups[formatted] = (dayGroups[formatted] || 0) + sale.amount;
+          const monthLabel = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+          const yearMonthVal = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+          
+          if (!monthGroups[yearMonthVal]) {
+            monthGroups[yearMonthVal] = {
+              label: monthLabel,
+              amount: 0,
+              yearMonthVal
+            };
+          }
+          monthGroups[yearMonthVal].amount += sale.amount;
         } catch {
-          dayGroups[dateStr] = (dayGroups[dateStr] || 0) + sale.amount;
+          const fallbackKey = dateStr.slice(0, 7);
+          if (!monthGroups[fallbackKey]) {
+            monthGroups[fallbackKey] = {
+              label: fallbackKey,
+              amount: 0,
+              yearMonthVal: fallbackKey
+            };
+          }
+          monthGroups[fallbackKey].amount += sale.amount;
         }
       }
     });
 
-    const sortedDays = Object.entries(dayGroups)
-      .map(([date, amount]) => ({ date, amount }))
-      .sort((a, b) => {
-        return new Date(a.date).getTime() - new Date(b.date).getTime();
-      })
-      .slice(-7);
+    const sortedMonths = Object.values(monthGroups)
+      .sort((a, b) => a.yearMonthVal.localeCompare(b.yearMonthVal))
+      .map(item => ({ date: item.label, amount: item.amount }))
+      .slice(-12); // Show up to the last 12 active months
 
-    if (sortedDays.length === 0) {
+    if (sortedMonths.length === 0) {
       return [
         { date: 'No Data', amount: 0 }
       ];
     }
-    return sortedDays;
+    return sortedMonths;
   }, [sales]);
 
   // Load Sales initially
@@ -726,11 +741,11 @@ export default function App() {
               isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200/80 shadow-3xs'
             }`}>
               <div className="flex items-center justify-between mb-3">
-                <span className={`text-[10px] font-black tracking-wider uppercase ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Sales Performance Over time</span>
-                <span className="text-[9px] font-semibold text-slate-400">Chronological Timeline</span>
+                <span className={`text-[10px] font-black tracking-wider uppercase ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Monthly Revenue Chart</span>
+                <span className="text-[9px] font-semibold text-slate-400">Monthly Timeline</span>
               </div>
               
-              {/* Daily / Timeline columns */}
+              {/* Monthly breakdown columns */}
               <div className="h-28 flex items-end justify-between gap-3 pt-3 px-1 relative border-b border-slate-700/20">
                 {/* Horizontal guidelines */}
                 <div className="absolute inset-x-0 top-0 border-t border-dashed border-slate-700/10" />
