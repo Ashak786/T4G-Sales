@@ -1,5 +1,13 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
+import { 
+  getAuth, 
+  signInWithPopup, 
+  signInWithRedirect, 
+  getRedirectResult, 
+  GoogleAuthProvider, 
+  onAuthStateChanged, 
+  User 
+} from 'firebase/auth';
 import type { Sale } from './supabase';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -12,33 +20,70 @@ provider.addScope('https://www.googleapis.com/auth/drive.file');
 provider.addScope('https://www.googleapis.com/auth/spreadsheets');
 
 let isSigningIn = false;
-let cachedAccessToken: string | null = null;
-
-// Track active sheet ID in localStorage to cache it
 const SPREADSHEET_ID_CACHE_KEY = 'tech4geeky_google_sheet_id';
+const GOOGLE_ACCESS_TOKEN_KEY = 'tech4geeky_google_access_token';
+
+// Read token from persistent storage initially
+let cachedAccessToken: string | null = localStorage.getItem(GOOGLE_ACCESS_TOKEN_KEY);
 
 export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
+  // 1. Process pending redirect results on page init
+  getRedirectResult(auth)
+    .then((result) => {
+      if (result) {
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        if (credential?.accessToken) {
+          cachedAccessToken = credential.accessToken;
+          localStorage.setItem(GOOGLE_ACCESS_TOKEN_KEY, credential.accessToken);
+          if (result.user && onAuthSuccess) {
+            onAuthSuccess(result.user, credential.accessToken);
+          }
+        }
+      }
+    })
+    .catch((error) => {
+      console.error('Redirect sign in error:', error);
+    });
+
+  // 2. Track real-time auth state changes
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
       if (cachedAccessToken) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
-      } else if (!isSigningIn) {
-        cachedAccessToken = null;
+      } else {
+        // If we don't have the token cached (e.g. session expired or cleared), trigger failure
         if (onAuthFailure) onAuthFailure();
       }
     } else {
       cachedAccessToken = null;
+      localStorage.removeItem(GOOGLE_ACCESS_TOKEN_KEY);
       if (onAuthFailure) onAuthFailure();
     }
   });
 };
 
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+  isSigningIn = true;
+  const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+  if (isMobileDevice) {
+    // Mobile browsers: call redirect flow directly to avoid pop-up blockages completely
+    try {
+      await signInWithRedirect(auth, provider);
+      return null; // Will trigger redirect page reload, callback on load will handle it
+    } catch (error: any) {
+      console.error('Mobile redirect auth error:', error);
+      throw error;
+    } finally {
+      isSigningIn = false;
+    }
+  }
+
+  // Desktop/default: try popup, fallback to redirect if blocked
   try {
-    isSigningIn = true;
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
@@ -46,10 +91,18 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     }
 
     cachedAccessToken = credential.accessToken;
+    localStorage.setItem(GOOGLE_ACCESS_TOKEN_KEY, credential.accessToken);
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
-    console.error('Sign in error:', error);
-    throw error;
+    console.warn('Popup authentication issue, attempting fallback redirect flow...', error);
+    // Code 'auth/popup-blocked' or generic error fallback
+    try {
+      await signInWithRedirect(auth, provider);
+      return null;
+    } catch (redirectErr: any) {
+      console.error('Mobile redirection fallback failed:', redirectErr);
+      throw redirectErr;
+    }
   } finally {
     isSigningIn = false;
   }
@@ -59,6 +112,7 @@ export const logout = async () => {
   await auth.signOut();
   cachedAccessToken = null;
   localStorage.removeItem(SPREADSHEET_ID_CACHE_KEY);
+  localStorage.removeItem(GOOGLE_ACCESS_TOKEN_KEY);
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
