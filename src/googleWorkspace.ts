@@ -1,0 +1,332 @@
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from 'firebase/auth';
+import type { Sale } from './supabase';
+import firebaseConfig from '../firebase-applet-config.json';
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+
+const provider = new GoogleAuthProvider();
+provider.addScope('https://www.googleapis.com/auth/drive.file');
+provider.addScope('https://www.googleapis.com/auth/spreadsheets');
+
+let isSigningIn = false;
+let cachedAccessToken: string | null = null;
+
+// Track active sheet ID in localStorage to cache it
+const SPREADSHEET_ID_CACHE_KEY = 'tech4geeky_google_sheet_id';
+
+export const initAuth = (
+  onAuthSuccess?: (user: User, token: string) => void,
+  onAuthFailure?: () => void
+) => {
+  return onAuthStateChanged(auth, async (user: User | null) => {
+    if (user) {
+      if (cachedAccessToken) {
+        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
+      } else if (!isSigningIn) {
+        cachedAccessToken = null;
+        if (onAuthFailure) onAuthFailure();
+      }
+    } else {
+      cachedAccessToken = null;
+      if (onAuthFailure) onAuthFailure();
+    }
+  });
+};
+
+export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+  try {
+    isSigningIn = true;
+    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (!credential?.accessToken) {
+      throw new Error('Failed to get access token from Firebase Auth');
+    }
+
+    cachedAccessToken = credential.accessToken;
+    return { user: result.user, accessToken: cachedAccessToken };
+  } catch (error: any) {
+    console.error('Sign in error:', error);
+    throw error;
+  } finally {
+    isSigningIn = false;
+  }
+};
+
+export const logout = async () => {
+  await auth.signOut();
+  cachedAccessToken = null;
+  localStorage.removeItem(SPREADSHEET_ID_CACHE_KEY);
+};
+
+export const getAccessToken = async (): Promise<string | null> => {
+  return cachedAccessToken;
+};
+
+// Spreadsheet Management API Client
+
+// Find or Create spreadsheet
+async function getOrCreateSpreadsheet(token: string): Promise<string> {
+  const cached = localStorage.getItem(SPREADSHEET_ID_CACHE_KEY);
+  if (cached) return cached;
+
+  // Search for an existing of name "Tech4Geeky Sales Tracker"
+  const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name%3D'Tech4Geeky+Sales+Tracker'+and+mimeType%3D'application/vnd.google-apps.spreadsheet'+and+trashed%3Dfalse&fields=files(id,name)`;
+  try {
+    const searchRes = await fetch(searchUrl, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const searchData = await searchRes.json();
+    if (searchData.files && searchData.files.length > 0) {
+      const sheetId = searchData.files[0].id;
+      localStorage.setItem(SPREADSHEET_ID_CACHE_KEY, sheetId);
+      return sheetId;
+    }
+  } catch (err) {
+    console.error('Failed to search Drive files:', err);
+  }
+
+  // Create new Spreadsheet
+  try {
+    const createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        properties: {
+          title: 'Tech4Geeky Sales Tracker'
+        },
+        sheets: [
+          {
+            properties: {
+              title: 'SalesList'
+            }
+          }
+        ]
+      })
+    });
+    const created = await createRes.json();
+    if (!created.spreadsheetId) {
+      throw new Error('Failed to create new Google Sheet.');
+    }
+
+    const sheetId = created.spreadsheetId;
+
+    // Insert headers
+    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/SalesList!A1:K1:append?valueInputOption=USER_ENTERED`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        values: [
+          ['ID', 'Created At', 'Sale Date', 'Category', 'Client Name', 'Client Email', 'Client Phone', 'Amount', 'Status', 'Payment Method', 'Description']
+        ]
+      })
+    });
+
+    localStorage.setItem(SPREADSHEET_ID_CACHE_KEY, sheetId);
+    return sheetId;
+  } catch (err: any) {
+    console.error('Spreadsheet create error:', err);
+    throw new Error('Could not initialize Google Sheet database: ' + err.message);
+  }
+}
+
+// Map Google Sheets standard array to Sale type
+function rowToSale(row: any[]): Sale | null {
+  if (!row || row.length === 0 || !row[0]) return null;
+  return {
+    id: row[0],
+    created_at: row[1] || new Date().toISOString(),
+    sale_date: row[2] || new Date().toISOString().split('T')[0],
+    category: row[3] as any,
+    client_name: row[4] || '',
+    client_email: row[5] || '',
+    client_phone: row[6] || '',
+    amount: Number(row[7]) || 0,
+    status: row[8] as any,
+    payment_method: row[9] as any,
+    description: row[10] || ''
+  };
+}
+
+// Convert Sale to Row Array
+function saleToRow(sale: Sale): any[] {
+  return [
+    sale.id,
+    sale.created_at,
+    sale.sale_date,
+    sale.category,
+    sale.client_name,
+    sale.client_email || '',
+    sale.client_phone || '',
+    sale.amount,
+    sale.status,
+    sale.payment_method,
+    sale.description || ''
+  ];
+}
+
+export async function fetchSheetsSales(token: string): Promise<Sale[]> {
+  const spreadsheetId = await getOrCreateSpreadsheet(token);
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A2:K10000`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  
+  const data = await response.json();
+  if (!data.values) return [];
+  
+  const sales: Sale[] = [];
+  data.values.forEach((row: any[]) => {
+    const sale = rowToSale(row);
+    if (sale) sales.push(sale);
+  });
+  return sales;
+}
+
+export async function insertSheetSale(token: string, sale: Omit<Sale, 'id' | 'created_at'>): Promise<Sale> {
+  const spreadsheetId = await getOrCreateSpreadsheet(token);
+  const id = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+  const created_at = new Date().toISOString();
+  
+  const fullSale: Sale = {
+    ...sale,
+    id,
+    created_at
+  };
+
+  const row = saleToRow(fullSale);
+
+  const appendRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A2:K2:append?valueInputOption=USER_ENTERED`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      values: [row]
+    })
+  });
+
+  if (!appendRes.ok) {
+    throw new Error('Google Sheets write failed.');
+  }
+
+  return fullSale;
+}
+
+export async function updateSheetSale(token: string, sale: Sale): Promise<Sale> {
+  const spreadsheetId = await getOrCreateSpreadsheet(token);
+  
+  // Find matching row by ID
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A1:A10000`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await response.json();
+  if (!data.values) throw new Error('Document structure is empty.');
+  
+  let rowIndex = -1;
+  for (let i = 0; i < data.values.length; i++) {
+    if (data.values[i][0] === sale.id) {
+      rowIndex = i + 1; // 1-indexed for sheets
+      break;
+    }
+  }
+
+  if (rowIndex === -1) {
+    // Attempt fallback to append it if not found in sheets active list
+    return insertSheetSale(token, sale);
+  }
+
+  const row = saleToRow(sale);
+  const putRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A${rowIndex}:K${rowIndex}?valueInputOption=USER_ENTERED`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      values: [row]
+    })
+  });
+
+  if (!putRes.ok) {
+    throw new Error('Failed to update Google Sheets cell record.');
+  }
+
+  return sale;
+}
+
+export async function deleteSheetSale(token: string, id: string): Promise<boolean> {
+  const spreadsheetId = await getOrCreateSpreadsheet(token);
+  
+  // Find matching row by ID
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A1:A10000`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await response.json();
+  if (!data.values) return false;
+
+  let rowIndex = -1;
+  for (let i = 0; i < data.values.length; i++) {
+    if (data.values[i][0] === id) {
+      rowIndex = i + 1;
+      break;
+    }
+  }
+
+  if (rowIndex === -1) return true; // Already deleted or not present
+
+  // Clear specific row values to maintain indexes without complex dimensions shifts
+  const clearRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A${rowIndex}:K${rowIndex}:clear`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
+  return clearRes.ok;
+}
+
+// Bulk Sync Local Offline entries to Google Sheets
+export async function syncLocalToSheets(token: string, localSales: Sale[]): Promise<{ syncedCount: number; error?: string }> {
+  try {
+    const spreadsheetId = await getOrCreateSpreadsheet(token);
+    const sheetsSales = await fetchSheetsSales(token);
+
+    const sheetsIds = new Set(sheetsSales.map(item => item.id));
+    const toInsert = localSales.filter(item => !sheetsIds.has(item.id));
+
+    if (toInsert.length === 0) {
+      return { syncedCount: 0 };
+    }
+
+    const rows = toInsert.map(sale => saleToRow(sale));
+
+    const appendRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A2:K2:append?valueInputOption=USER_ENTERED`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        values: rows
+      })
+    });
+
+    if (!appendRes.ok) {
+      throw new Error('Sync append to sheet failed.');
+    }
+
+    return { syncedCount: toInsert.length };
+  } catch (err: any) {
+    console.error('Google sheet syncing error:', err);
+    return { syncedCount: 0, error: err.message };
+  }
+}

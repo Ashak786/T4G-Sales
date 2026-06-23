@@ -35,14 +35,19 @@ import {
 } from 'lucide-react';
 import { 
   Sale, 
-  getSales, 
-  addSale, 
-  updateSale, 
-  deleteSale, 
-  syncLocalToSupabase, 
-  isSupabaseConfigured,
-  SUPABASE_SQL_SCRIPT
+  getLocalSales, 
+  saveLocalSales 
 } from './supabase';
+import {
+  initAuth,
+  googleSignIn,
+  logout,
+  fetchSheetsSales,
+  insertSheetSale,
+  updateSheetSale,
+  deleteSheetSale,
+  syncLocalToSheets
+} from './googleWorkspace';
 
 export default function App() {
   // Theme State
@@ -65,9 +70,13 @@ export default function App() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [syncing, setSyncing] = useState<boolean>(false);
-  const [dbSource, setDbSource] = useState<'supabase' | 'local'>('local');
+  const [dbSource, setDbSource] = useState<'sheets' | 'local'>('local');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [sqlCopied, setSqlCopied] = useState<boolean>(false);
+
+  // Google Connection / Auth state
+  const [user, setUser] = useState<any>(null);
+  const [googleToken, setGoogleToken] = useState<string | null>(null);
   
   // Search & Filters State
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -203,25 +212,47 @@ export default function App() {
   }, [sales]);
 
   // Load Sales initially
-  const loadData = async () => {
+  const loadData = async (activeToken?: string | null) => {
     setLoading(true);
     setErrorMessage('');
+    const curToken = activeToken !== undefined ? activeToken : googleToken;
     try {
-      const response = await getSales();
-      setSales(response.sales);
-      setDbSource(response.source);
-      if (response.error) {
-        setErrorMessage(response.error);
+      if (curToken) {
+        const sheetsSales = await fetchSheetsSales(curToken);
+        setSales(sheetsSales);
+        setDbSource('sheets');
+        saveLocalSales(sheetsSales);
+      } else {
+        const local = getLocalSales();
+        setSales(local);
+        setDbSource('local');
       }
     } catch (err: any) {
-      setErrorMessage('Failed to connect to data repository: ' + (err.message || err));
+      console.error(err);
+      setErrorMessage('Google Sheets connection error: ' + (err.message || 'Check connection.'));
+      setSales(getLocalSales());
+      setDbSource('local');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
+    const unsubscribe = initAuth(
+      (user, token) => {
+        setUser(user);
+        setGoogleToken(token);
+        loadData(token);
+      },
+      () => {
+        setUser(null);
+        setGoogleToken(null);
+        loadData(null);
+      }
+    );
+    return () => {
+      if (typeof unsubscribe === 'function') unsubscribe();
+    };
   }, []);  // Category Colors and Settings Map
   const categoryConfig = {
     'Video editing': {
@@ -283,31 +314,26 @@ export default function App() {
 
   // Manual Trigger to Sync records
   const handleSyncButton = async () => {
-    if (!isSupabaseConfigured) {
-      setErrorMessage('Configure your Supabase URL & Key in the Secrets menu to sync!');
+    if (!googleToken) {
+      setErrorMessage('Connect your Google Account in settings to sync records online with Google Sheets!');
       return;
     }
     setSyncing(true);
     setErrorMessage('');
     try {
-      const result = await syncLocalToSupabase();
+      const local = getLocalSales();
+      const result = await syncLocalToSheets(googleToken, local);
       if (result.error) {
         setErrorMessage(result.error);
       } else {
-        alert(`Successfully synced ${result.syncedCount} offline sales to Supabase!`);
-        await loadData();
+        alert(`Successfully synced ${result.syncedCount} offline sales to Google Sheets!`);
+        await loadData(googleToken);
       }
     } catch (err: any) {
       setErrorMessage('Sync error: ' + (err.message || err));
     } finally {
       setSyncing(false);
     }
-  };
-
-  const handleCopySQL = () => {
-    navigator.clipboard.writeText(SUPABASE_SQL_SCRIPT);
-    setSqlCopied(true);
-    setTimeout(() => setSqlCopied(false), 2000);
   };
 
   // Handle Create Submit
@@ -320,7 +346,7 @@ export default function App() {
 
     setLoading(true);
     try {
-      const result = await addSale({
+      const saleData = {
         sale_date: formData.sale_date,
         category: formData.category,
         client_name: formData.client_name.trim(),
@@ -330,14 +356,29 @@ export default function App() {
         status: formData.status,
         payment_method: formData.payment_method,
         description: formData.description.trim() || undefined
-      });
+      };
 
-      if (result.error) {
-        setErrorMessage(result.error);
+      if (googleToken) {
+        const created = await insertSheetSale(googleToken, saleData);
+        // Cache locally as fallback
+        const local = getLocalSales();
+        local.unshift(created);
+        saveLocalSales(local);
+      } else {
+        const newId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+        const newCreated = new Date().toISOString();
+        const fullSale: Sale = {
+          ...saleData,
+          id: newId,
+          created_at: newCreated
+        };
+        const local = getLocalSales();
+        local.unshift(fullSale);
+        saveLocalSales(local);
       }
       
       // Reload from local storage or cloud
-      await loadData();
+      await loadData(googleToken);
       
       // Reset Form State
       setFormData({
@@ -400,12 +441,27 @@ export default function App() {
         description: formData.description.trim() || undefined
       };
 
-      const result = await updateSale(updatedItem);
-      if (result.error) {
-        setErrorMessage(result.error);
+      if (googleToken) {
+        await updateSheetSale(googleToken, updatedItem);
+        // Cache locally
+        const local = getLocalSales();
+        const idx = local.findIndex(s => s.id === updatedItem.id);
+        if (idx !== -1) {
+          local[idx] = updatedItem;
+        } else {
+          local.push(updatedItem);
+        }
+        saveLocalSales(local);
+      } else {
+        const local = getLocalSales();
+        const idx = local.findIndex(s => s.id === updatedItem.id);
+        if (idx !== -1) {
+          local[idx] = updatedItem;
+        }
+        saveLocalSales(local);
       }
 
-      await loadData();
+      await loadData(googleToken);
       setIsEditOpen(false);
       setActiveSale(null);
     } catch (err: any) {
@@ -419,11 +475,16 @@ export default function App() {
   const handleDeleteSale = async (id: string) => {
     setLoading(true);
     try {
-      const result = await deleteSale(id);
-      if (result.error) {
-        setErrorMessage(result.error);
+      if (googleToken) {
+        await deleteSheetSale(googleToken, id);
       }
-      await loadData();
+      
+      // Update local storage
+      const local = getLocalSales();
+      const filtered = local.filter(s => s.id !== id);
+      saveLocalSales(filtered);
+
+      await loadData(googleToken);
       setIsDetailsOpen(false);
       setIsConfirmingDelete(false);
       setActiveSale(null);
@@ -640,23 +701,23 @@ export default function App() {
             isDark ? 'bg-slate-900/60 border-slate-800/80 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-655'
           }`}>
             <div className="flex items-center gap-2">
-              {dbSource === 'supabase' ? (
+              {dbSource === 'sheets' ? (
                 <>
                   <span className="relative flex h-2.5 w-2.5">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
                   </span>
-                  <span className={`font-semibold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Supabase Connected</span>
+                  <span className={`font-semibold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Google Sheets Connected</span>
                 </>
               ) : (
                 <>
                   <span className="h-2.5 w-2.5 rounded-full bg-amber-500"></span>
-                  <span className={`font-medium ${isDark ? 'text-slate-300' : 'text-slate-650'}`}>Local Space (Offline Fallback)</span>
+                  <span className={`font-medium ${isDark ? 'text-slate-300' : 'text-slate-650'}`}>Local Space (Offline Sandbox)</span>
                 </>
               )}
             </div>
 
-            {dbSource === 'supabase' ? (
+            {dbSource === 'sheets' ? (
               <button 
                 onClick={handleSyncButton}
                 disabled={syncing}
@@ -667,7 +728,7 @@ export default function App() {
                 }`}
               >
                 <Database className="w-3 h-3" />
-                {syncing ? 'Syncing...' : 'Bulk Sync'}
+                {syncing ? 'Syncing...' : 'Sync Now'}
               </button>
             ) : (
               <button 
@@ -679,7 +740,7 @@ export default function App() {
                 }`}
               >
                 <Database className={`w-3 h-3 ${isDark ? 'text-amber-400' : 'text-amber-500'}`} />
-                Setup Cloud DB
+                Connect Sheets
               </button>
             )}
           </div>
@@ -1028,7 +1089,7 @@ export default function App() {
           </section>
 
           {/* Information Notice explaining the setup capability */}
-          {!isSupabaseConfigured && (
+          {!googleToken && (
             <section className={`p-3.5 rounded-xl border space-y-1 mt-4 transition-all duration-250 ${
               isDark 
                 ? 'bg-gradient-to-r from-amber-950/20 to-slate-900 border-amber-500/20' 
@@ -1039,7 +1100,7 @@ export default function App() {
                 <span>Notice: Local Sandbox Mode</span>
               </div>
               <p className={`text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-650'} leading-relaxed`}>
-                Sales are currently persisting directly to your browser storage. Plug in your <b>Supabase URL &amp; Key</b> in database configurations to connect cloud sync!
+                Sales are currently persisting directly to your browser storage. Connect your Google Account in the Cloud Base Settings to automatically sync and record with Google Sheets!
               </p>
             </section>
           )}
@@ -1834,13 +1895,13 @@ export default function App() {
           </div>
         )}
 
-        {/* 4. SUPABASE & DATABASE CONFIGS COMPONENT (SETTINGS MENU) */}
+        {/* 4. GOOGLE DRIVE & GOOGLE SHEETS BASE CONFIGS COMPONENT (SETTINGS MENU) */}
         {isSettingsOpen && (
           <div className="absolute bottom-0 inset-x-0 bg-slate-900 rounded-t-[32px] border-t border-slate-800 z-40 max-h-[94%] flex flex-col transition-all duration-300">
             <div className="pt-5 px-5 pb-3 border-b border-slate-850 flex items-center justify-between flex-shrink-0">
               <span className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
                 <Database className="w-4 h-4 text-indigo-400" />
-                Cloud Base Configuration
+                Google Workspace Connection
               </span>
               <button 
                 onClick={() => setIsSettingsOpen(false)}
@@ -1857,67 +1918,129 @@ export default function App() {
                 <div>
                   <p className="text-slate-500 text-[10px] uppercase">ACTIVE DRIVER</p>
                   <p className="text-sm font-bold text-white mt-0.5">
-                    {isSupabaseConfigured ? 'Supabase SDK client' : 'Local Sandbox Client'}
+                    {googleToken ? 'Google Sheets cloud database' : 'Local Sandbox Client'}
                   </p>
+                  {user && (
+                    <p className="text-[10px] text-slate-400 mt-1 font-mono">
+                      Connected: {user.email || 'Authorized User'}
+                    </p>
+                  )}
                 </div>
                 <div className="text-right">
-                  {isSupabaseConfigured ? (
-                    <span className="px-2.5 py-1 text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-900 rounded-full font-bold">● Active</span>
+                  {googleToken ? (
+                    <span className="px-2.5 py-1 text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-900 rounded-full font-bold">● Connected</span>
                   ) : (
-                    <span className="px-2.5 py-1 text-[10px] bg-amber-950 text-amber-400 border border-amber-900 rounded-full font-bold">♟ Client Standalone</span>
+                    <span className="px-2.5 py-1 text-[10px] bg-amber-950 text-amber-400 border border-amber-900 rounded-full font-bold">♟ Sandbox Offline</span>
                   )}
                 </div>
               </div>
 
-              {/* Instructions on variables */}
-              <div className="space-y-2">
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  Tech4Geeky database relies on environment credentials. Here is how you can activate persistent cloud recording:
-                </p>
-                <ol className="list-decimal list-inside space-y-1 bg-slate-950 p-3.5 rounded-xl border border-slate-850 text-[11.5px] text-slate-400 leading-relaxed">
-                  <li>Go to your <b className="text-slate-200">Supabase Settings</b> &rarr; API.</li>
-                  <li>Copy <b className="text-slate-200">Project URL</b> and <b className="text-slate-200">anon/public API key</b>.</li>
-                  <li>Open the AI Studio <b className="text-indigo-400">Secrets / Settings</b> menu (or your local environment).</li>
-                  <li>Create <code className="text-cyan-400 bg-slate-900 px-1 py-0.5 rounded">VITE_SUPABASE_URL</code> and <code className="text-cyan-400 bg-slate-900 px-1 py-0.5 rounded">VITE_SUPABASE_ANON_KEY</code> secrets.</li>
-                  <li>Rebuild/refresh the application!</li>
-                </ol>
-              </div>
+              {/* Login / Actions Controls */}
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-850 space-y-3.5">
+                {!googleToken ? (
+                  <div className="space-y-3 text-center">
+                    <p className="text-[11px] text-slate-355 leading-relaxed text-left">
+                      To persist and query sales from Google Sheets, sign in using your Google account with Sheets and Drive permission:
+                    </p>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          setLoading(true);
+                          const result = await googleSignIn();
+                          if (result) {
+                            setUser(result.user);
+                            setGoogleToken(result.accessToken);
+                            await loadData(result.accessToken);
+                          }
+                        } catch (err: any) {
+                          setErrorMessage('Sign-in failed: ' + err.message);
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                      className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-indigo-950/20"
+                    >
+                      <User className="w-4 h-4" />
+                      Sign in with Google Account
+                    </button>
+                    <p className="text-[9px] text-slate-500 mt-1.5">
+                      This will automatically find or create a spreadsheet named "Tech4Geeky Sales Tracker" in your Google Drive.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      You are authenticated. Your active database live spreadsheet resides on your personal Google Drive.
+                    </p>
+                    
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const sheetId = localStorage.getItem('tech4geeky_google_sheet_id');
+                          if (sheetId) {
+                            window.open(`https://docs.google.com/spreadsheets/d/${sheetId}`, '_blank');
+                          } else {
+                            alert('Google Sheet database has not been initialized yet. Create or load a record first!');
+                          }
+                        }}
+                        className="py-2 px-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-300 font-semibold text-center flex items-center justify-center gap-1.5 transition cursor-pointer"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-indigo-400" />
+                        Open Sheet
+                      </button>
 
-              {/* DB SQL SETUP Instructions */}
-              <div className="space-y-1.5">
-                <div className="flex justify-between items-center text-[10.5px] font-black text-slate-400 uppercase tracking-wider">
-                  <span>Supabase SQL Setup Code</span>
-                  <button
-                    onClick={handleCopySQL}
-                    className="flex items-center gap-1.5 text-indigo-400 hover:text-white bg-slate-950 border border-slate-850 px-2.5 py-1 rounded-md transition cursor-pointer"
-                  >
-                    {sqlCopied ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        <span className="text-emerald-400">Copied!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5" />
-                        <span>Copy Script</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-                <div className="relative">
-                  <pre className="p-3 bg-slate-950 rounded-xl text-[10.5px] text-slate-400 border border-slate-850 font-mono overflow-x-auto max-h-[140px] leading-relaxed scrollbar-thin">
-                    {SUPABASE_SQL_SCRIPT}
-                  </pre>
-                </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (window.confirm('Are you sure you want to log out from GDrive database connectivity?')) {
+                            setLoading(true);
+                            await logout();
+                            setUser(null);
+                            setGoogleToken(null);
+                            await loadData(null);
+                            setLoading(false);
+                            setIsSettingsOpen(false);
+                          }
+                        }}
+                        className="py-2 px-3 bg-slate-900 hover:bg-red-950/30 hover:text-red-400 border border-slate-800 hover:border-red-900/50 rounded-lg text-slate-400 font-semibold text-center flex items-center justify-center gap-1.5 transition cursor-pointer"
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                        Sign Out
+                      </button>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleSyncButton}
+                      disabled={syncing}
+                      className="w-full mt-2 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-white font-bold text-xs uppercase tracking-wider transition flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      {syncing ? (
+                        <>
+                          <div className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                          <span>Syncing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>Synergize / Push Offline Work</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Backup Client Utilities */}
               <div className="p-4 bg-slate-950/40 rounded-xl border border-slate-850 space-y-3.5">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Sandbox Mode Operations</span>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Sandbox & Backup Operations</span>
                 
                 <div className="grid grid-cols-2 gap-2">
                   {/* Export CSV */}
                   <button
+                    type="button"
                     onClick={() => {
                       if (sales.length === 0) return alert('No performance sales recorded yet.');
                       const headers = ['id', 'sale_date', 'category', 'client_name', 'amount', 'status', 'payment_method', 'description'];
@@ -1946,7 +2069,7 @@ export default function App() {
                       a.click();
                       document.body.removeChild(a);
                     }}
-                    className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-[11px] font-semibold text-slate-300 transition flex items-center justify-center gap-1"
+                    className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-[11px] font-semibold text-slate-300 transition flex items-center justify-center gap-1 cursor-pointer"
                   >
                     <FileText className="w-3.5 h-3.5 text-indigo-400" />
                     Download CSV
@@ -1954,14 +2077,15 @@ export default function App() {
 
                   {/* Seed Restore */}
                   <button
+                    type="button"
                     onClick={() => {
                       if (window.confirm('Reset local sales state back to system seed defaults? This clears custom local changes!')) {
                         localStorage.removeItem('tech4geeky_sales_data');
-                        loadData();
+                        loadData(googleToken);
                         setIsSettingsOpen(false);
                       }
                     }}
-                    className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-[11px] font-semibold text-slate-300 transition flex items-center justify-center gap-1"
+                    className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-[11px] font-semibold text-slate-300 transition flex items-center justify-center gap-1 cursor-pointer"
                   >
                     <RotateCcw className="w-3.5 h-3.5 text-rose-400" />
                     Reset Seeds
