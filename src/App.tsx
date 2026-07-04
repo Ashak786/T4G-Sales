@@ -653,15 +653,15 @@ export default function App() {
   return (
     <div className={`min-h-screen ${isDark ? 'bg-slate-900 text-slate-100' : 'bg-slate-100 text-slate-800'} font-sans antialiased flex flex-col md:py-6 md:px-4 items-center justify-start transition-colors duration-200`}>
       
-      {/* Container simulating high-fidelity smartphone sizing on screen widths above mobile layout */}
-      <div className={`w-full max-w-md ${isDark ? 'bg-slate-950 border-slate-800/80 md:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8)]' : 'bg-white border-slate-200 md:shadow-[0_20px_50px_rgba(0,0,0,0.1)]'} md:rounded-[40px] overflow-hidden flex flex-col min-h-screen md:min-h-[850px] relative border transition-all duration-200`}>
+      {/* Container adapting to screen width: smartphone mockup on mobile/tablet, full-scale dashboard on desktop */}
+      <div className={`w-full max-w-md lg:max-w-5xl xl:max-w-6xl ${isDark ? 'bg-slate-950 border-slate-800/80 md:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8)]' : 'bg-white border-slate-200 md:shadow-[0_20px_50px_rgba(0,0,0,0.1)]'} md:rounded-[40px] overflow-hidden flex flex-col min-h-screen md:min-h-[850px] relative border transition-all duration-200`}>
         
-        {/* Smartphone top notched sensor strip for visual character, visible on desktop desktop-views */}
-        <div className={`hidden md:flex justify-between items-center px-8 pt-3 pb-2 text-[11px] font-semibold ${isDark ? 'text-slate-500 bg-slate-950 border-slate-900' : 'text-slate-400 bg-slate-50 border-slate-150'} border-b select-none transition-colors duration-200`}>
+        {/* Smartphone top notched sensor strip for visual character, visible on medium mock viewports but hidden in desktop dashboard mode */}
+        <div className={`hidden md:max-lg:flex justify-between items-center px-8 pt-3 pb-2 text-[11px] font-semibold ${isDark ? 'text-slate-500 bg-slate-950 border-slate-900' : 'text-slate-400 bg-slate-50 border-slate-150'} border-b select-none transition-colors duration-200`}>
           <span>Tech4Geeky HQ</span>
           <div className={`w-24 h-4 ${isDark ? 'bg-slate-900' : 'bg-slate-100/80'} rounded-full flex items-center justify-center`}>
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
-            <span className={`text-[9px] ${isDark ? 'text-slate-400' : 'text-slate-600'} font-bold tracking-wider`}>SECURE DB</span>
+            <span className={`text-[9px] ${isDark ? 'text-slate-400' : 'text-slate-650'} font-bold tracking-wider`}>SECURE DB</span>
           </div>
           <span className="opacity-0 w-0 select-none pointer-events-none"></span>
         </div>
@@ -775,9 +775,12 @@ export default function App() {
         </header>
 
         {/* Global Tab Content Viewport */}
-        <main className="flex-1 overflow-y-auto px-4 py-4 pb-24 space-y-5">
+        <main className="flex-1 overflow-y-auto px-4 py-4 pb-24 space-y-5 lg:space-y-0 lg:grid lg:grid-cols-12 lg:gap-6 lg:items-start">
           
-          {/* Main Financial Metrics Carousel / Grid */}
+          {/* LEFT PANEL: Analytics & Summary (Desktop side-by-side) */}
+          <div className="lg:col-span-5 space-y-5 flex flex-col">
+            
+            {/* Main Financial Metrics Carousel / Grid */}
           <section className="space-y-3">
             <h2 className={`text-xs font-bold tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-500'} uppercase`}>Sales Performance Summary</h2>
             <div className="grid grid-cols-2 gap-3">
@@ -899,6 +902,28 @@ export default function App() {
             </div>
           </section>
 
+          {/* Information Notice explaining the setup capability */}
+          {!googleToken && (
+            <section className={`p-3.5 rounded-xl border space-y-1 transition-all duration-250 ${
+              isDark 
+                ? 'bg-gradient-to-r from-amber-950/20 to-slate-900 border-amber-500/20' 
+                : 'bg-amber-50/40 border-amber-200 text-slate-800'
+            }`}>
+              <div className={`flex items-center gap-1.5 text-xs font-bold ${isDark ? 'text-amber-400' : 'text-amber-700'}`}>
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                <span>Notice: Local Sandbox Mode</span>
+              </div>
+              <p className={`text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-650'} leading-relaxed`}>
+                Sales are currently persisting directly to your browser storage. Connect your Google Account in the Cloud Base Settings to automatically sync and record with Google Sheets!
+              </p>
+            </section>
+          )}
+
+          </div>
+
+          {/* RIGHT PANEL: Sales Record Directory (Desktop side-by-side) */}
+          <div className="lg:col-span-7 space-y-5 flex flex-col">
+
           {/* Search, Filter pill and Sort block */}
           <section className="space-y-3">
             <div className="relative">
@@ -1003,7 +1028,31 @@ export default function App() {
             <div className={`flex justify-between items-center p-2 rounded-lg text-xs ${
               isDark ? 'bg-slate-900/30 text-slate-400' : 'bg-slate-100/50 text-slate-600'
             }`}>
-              <span>Showing <b>{filteredSales.length}</b> records</span>
+              <div className="flex items-center gap-2">
+                <span>Showing <b>{filteredSales.length}</b> records</span>
+                <button
+                  type="button"
+                  id="desktop-add-sale-btn"
+                  onClick={() => {
+                    setFormData({
+                      sale_date: new Date().toISOString().split('T')[0],
+                      category: 'Video editing',
+                      client_name: '',
+                      client_email: '',
+                      client_phone: '',
+                      amount: '',
+                      status: 'Paid',
+                      payment_method: 'UPI/Online',
+                      description: ''
+                    });
+                    setIsAddOpen(true);
+                  }}
+                  className="hidden lg:flex items-center gap-1 px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] transition-all"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Log Sale</span>
+                </button>
+              </div>
               <div className="flex items-center gap-1">
                 <span>By:</span>
                 <select
@@ -1106,25 +1155,9 @@ export default function App() {
               })
             )}
           </section>
+        </div>
 
-          {/* Information Notice explaining the setup capability */}
-          {!googleToken && (
-            <section className={`p-3.5 rounded-xl border space-y-1 mt-4 transition-all duration-250 ${
-              isDark 
-                ? 'bg-gradient-to-r from-amber-950/20 to-slate-900 border-amber-500/20' 
-                : 'bg-amber-50/40 border-amber-200 text-slate-800'
-            }`}>
-              <div className={`flex items-center gap-1.5 text-xs font-bold ${isDark ? 'text-amber-400' : 'text-amber-700'}`}>
-                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-                <span>Notice: Local Sandbox Mode</span>
-              </div>
-              <p className={`text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-650'} leading-relaxed`}>
-                Sales are currently persisting directly to your browser storage. Connect your Google Account in the Cloud Base Settings to automatically sync and record with Google Sheets!
-              </p>
-            </section>
-          )}
-
-        </main>
+      </main>
 
         {/* Global Bottom Sticky Action Command Strip */}
         <div className="absolute bottom-4 right-4 z-10">
@@ -1168,7 +1201,7 @@ export default function App() {
 
         {/* 1. VIEW SALES DETAILS COMPONENT */}
         {isDetailsOpen && activeSale && (
-          <div className={`absolute bottom-0 inset-x-0 rounded-t-[32px] border-t z-40 max-h-[90%] flex flex-col transition-all duration-300 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-2xl'}`}>
+          <div className={`absolute bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-md lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[90%] flex flex-col transition-all duration-300 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-2xl'}`}>
             {/* Grab Bar Header */}
             <div className={`w-12 h-1.5 rounded-full mx-auto my-3 flex-shrink-0 ${isDark ? 'bg-slate-700/80' : 'bg-slate-300'}`} />
             
@@ -1294,7 +1327,7 @@ export default function App() {
 
         {/* 2. ADD SALES RECORD COMPONENT */}
         {isAddOpen && (
-          <div className={`absolute bottom-0 inset-x-0 rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
+          <div className={`absolute bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
             isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800 shadow-2xl'
           }`}>
             {/* Grab Bar Header */}
@@ -1605,7 +1638,7 @@ export default function App() {
 
         {/* 3. EDIT SALES RECORD COMPONENT */}
         {isEditOpen && activeSale && (
-          <div className={`absolute bottom-0 inset-x-0 rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
+          <div className={`absolute bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
             isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800 shadow-2xl'
           }`}>
             {/* Grab Bar Header */}
@@ -1916,7 +1949,7 @@ export default function App() {
 
         {/* 4. GOOGLE DRIVE & GOOGLE SHEETS BASE CONFIGS COMPONENT (SETTINGS MENU) */}
         {isSettingsOpen && (
-          <div className="absolute bottom-0 inset-x-0 bg-slate-900 rounded-t-[32px] border-t border-slate-800 z-40 max-h-[94%] flex flex-col transition-all duration-300">
+          <div className="absolute bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] bg-slate-900 rounded-t-[32px] border-t border-slate-800 z-40 max-h-[94%] flex flex-col transition-all duration-300">
             <div className="pt-5 px-5 pb-3 border-b border-slate-850 flex items-center justify-between flex-shrink-0">
               <span className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
                 <Database className="w-4 h-4 text-indigo-400" />
