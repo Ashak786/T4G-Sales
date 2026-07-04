@@ -38,6 +38,7 @@ import {
   getLocalSales, 
   saveLocalSales 
 } from './supabase';
+import { generateInvoicePDF } from './utils/pdfGenerator';
 import {
   initAuth,
   googleSignIn,
@@ -1369,6 +1370,22 @@ export default function App() {
                     {activeSale.description}
                   </p>
                 </div>
+              )}
+
+              {/* Generate PDF Invoice Button */}
+              {!isConfirmingDelete && (
+                <button
+                  type="button"
+                  onClick={() => generateInvoicePDF(activeSale, sales)}
+                  className={`w-full py-3.5 px-4 font-extrabold rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 border transition duration-200 cursor-pointer ${
+                    isDark 
+                      ? 'bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white border-sky-500/30 hover:border-sky-400/50 shadow-md shadow-sky-950/20' 
+                      : 'bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-600 hover:to-indigo-600 text-white border-sky-400/30 shadow-md shadow-sky-100'
+                  }`}
+                >
+                  <FileText className="w-4 h-4 text-white" />
+                  <span>Download PDF Invoice</span>
+                </button>
               )}
 
               {/* Action Operations Grid */}
