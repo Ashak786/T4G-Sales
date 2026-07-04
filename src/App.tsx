@@ -56,6 +56,10 @@ const getFriendlyErrorMessage = (err: any): string => {
   if (!err) return 'Unknown error occurred';
   const msg = err.message || String(err);
   
+  if (msg.includes('auth/unauthorized-domain') || msg.toLowerCase().includes('unauthorized-domain') || msg.toLowerCase().includes('unauthorized domain')) {
+    return 'UNAUTHORIZED_DOMAIN_ERROR: Firebase auth/unauthorized-domain. This Netlify or custom domain is not authorized in your Firebase Project! To resolve this: \n1. Open your Firebase Console (https://console.firebase.google.com)\n2. Navigate to "Authentication" -> "Settings" -> "Authorized Domains"\n3. Click "Add domain" and enter your Netlify app domain (e.g., your-app.netlify.app or custom domain).\n4. Save and reload this page to connect!';
+  }
+
   if (msg.includes('API_DISABLED_ERROR')) {
     return msg;
   }
@@ -76,12 +80,15 @@ const renderErrorMessage = (msg: string) => {
   
   const isRateLimit = msg.startsWith('RATE_LIMIT_ERROR:');
   const isOffline = msg.startsWith('OFFLINE_ERROR:');
+  const isUnauthorizedDomain = msg.startsWith('UNAUTHORIZED_DOMAIN_ERROR:');
   
   let cleanMsg = msg;
   if (isRateLimit) {
     cleanMsg = msg.replace('RATE_LIMIT_ERROR:', '').trim();
   } else if (isOffline) {
     cleanMsg = msg.replace('OFFLINE_ERROR:', '').trim();
+  } else if (isUnauthorizedDomain) {
+    cleanMsg = msg.replace('UNAUTHORIZED_DOMAIN_ERROR:', '').trim();
   } else {
     cleanMsg = msg.replace('API_DISABLED_ERROR:', '').trim();
   }
@@ -95,7 +102,10 @@ const renderErrorMessage = (msg: string) => {
       {isOffline && (
         <span className="font-bold text-sky-500 dark:text-sky-400 text-xs">Offline Local Mode Active</span>
       )}
-      <span className="leading-relaxed">
+      {isUnauthorizedDomain && (
+        <span className="font-bold text-red-500 dark:text-red-400 text-xs">Firebase Authorization Required</span>
+      )}
+      <span className="leading-relaxed whitespace-pre-line text-xs font-mono">
         {parts.map((part, index) => {
           if (part.match(/^https?:\/\//)) {
             const cleanUrl = part.replace(/[.,;)]+$/, '');

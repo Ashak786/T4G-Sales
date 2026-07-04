@@ -30,6 +30,28 @@ export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
+  let redirectChecked = false;
+  let authStateUser: User | null = null;
+  let hasCheckedAuthOnce = false;
+
+  const emitAuthState = () => {
+    if (!redirectChecked) {
+      // Do not emit yet! We must wait for getRedirectResult to finish so we don't prematurely report "no token" during the redirect callback.
+      return;
+    }
+
+    if (authStateUser) {
+      if (cachedAccessToken) {
+        if (onAuthSuccess) onAuthSuccess(authStateUser, cachedAccessToken);
+      } else {
+        // If we have a user but no access token cached, report failure so they can login again
+        if (onAuthFailure) onAuthFailure();
+      }
+    } else {
+      if (onAuthFailure) onAuthFailure();
+    }
+  };
+
   // 1. Process pending redirect results on page init
   getRedirectResult(auth)
     .then((result) => {
@@ -38,51 +60,35 @@ export const initAuth = (
         if (credential?.accessToken) {
           cachedAccessToken = credential.accessToken;
           localStorage.setItem(GOOGLE_ACCESS_TOKEN_KEY, credential.accessToken);
-          if (result.user && onAuthSuccess) {
-            onAuthSuccess(result.user, credential.accessToken);
-          }
         }
       }
+      redirectChecked = true;
+      emitAuthState();
     })
     .catch((error) => {
       console.error('Redirect sign in error:', error);
+      redirectChecked = true;
+      emitAuthState();
     });
 
   // 2. Track real-time auth state changes
   return onAuthStateChanged(auth, async (user: User | null) => {
-    if (user) {
-      if (cachedAccessToken) {
-        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
-      } else {
-        // If we don't have the token cached (e.g. session expired or cleared), trigger failure
-        if (onAuthFailure) onAuthFailure();
-      }
-    } else {
+    authStateUser = user;
+    if (!user) {
       cachedAccessToken = null;
       localStorage.removeItem(GOOGLE_ACCESS_TOKEN_KEY);
-      if (onAuthFailure) onAuthFailure();
     }
+    emitAuthState();
   });
 };
 
 export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
   isSigningIn = true;
-  const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
-  if (isMobileDevice) {
-    // Mobile browsers: call redirect flow directly to avoid pop-up blockages completely
-    try {
-      await signInWithRedirect(auth, provider);
-      return null; // Will trigger redirect page reload, callback on load will handle it
-    } catch (error: any) {
-      console.error('Mobile redirect auth error:', error);
-      throw error;
-    } finally {
-      isSigningIn = false;
-    }
-  }
-
-  // Desktop/default: try popup, fallback to redirect if blocked
+  // Modern browsers (including iOS Safari and mobile Chrome) support signInWithPopup when triggered by a direct user click (gesture).
+  // Using signInWithPopup is CRITICAL on custom domains (like Netlify) because signInWithRedirect gets blocked by 
+  // third-party cookie restrictions (Apple Intelligent Tracking Prevention / iOS 14+ / Chrome cookie policies),
+  // which leaves mobile users stuck in "Sandbox Mode" (anonymous/unauthenticated state). signInWithPopup uses direct postMessage window mechanics and bypasses third-party cookie blockages perfectly!
   try {
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
@@ -94,13 +100,14 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
     localStorage.setItem(GOOGLE_ACCESS_TOKEN_KEY, credential.accessToken);
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
-    console.warn('Popup authentication issue, attempting fallback redirect flow...', error);
-    // Code 'auth/popup-blocked' or generic error fallback
+    console.warn('Popup authentication issue, trying fallback redirect flow...', error);
+    
+    // Fallback to redirect only if popup-blocked or other popup issues occur
     try {
       await signInWithRedirect(auth, provider);
       return null;
     } catch (redirectErr: any) {
-      console.error('Mobile redirection fallback failed:', redirectErr);
+      console.error('Redirect fallback failed:', redirectErr);
       throw redirectErr;
     }
   } finally {
