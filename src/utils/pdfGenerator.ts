@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import { Sale } from '../supabase';
+import { Sale } from '../salesDb';
 
 // Helper function to convert numeric Rupees to Indian currency words
 function numberToRupeesWords(amount: number): string {
@@ -63,6 +63,17 @@ function formatRupees(amount: number): string {
   return `Rs. ${formatter.format(amount)}`;
 }
 
+// Helper function to format date to Indian Style (DD-MM-YYYY)
+export function formatIndianDate(dateStr: string | undefined): string {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
+    const [year, month, day] = parts;
+    return `${day}-${month}-${year}`;
+  }
+  return dateStr;
+}
+
 // Fetch QR Code image as base64 to embed offline-friendly in the PDF
 async function fetchQRCodeBase64(upiString: string): Promise<string | null> {
   const url = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiString)}&color=15-23-42`;
@@ -82,6 +93,139 @@ async function fetchQRCodeBase64(upiString: string): Promise<string | null> {
   }
 }
 
+// Convert Google Drive open links into a direct cross-origin image download URL
+export function getGoogleDriveDirectUrl(url: string): string {
+  let id = '';
+  const matchId = url.match(/[?&]id=([^&#]+)/);
+  if (matchId) {
+    id = matchId[1];
+  } else {
+    const matchPath = url.match(/\/file\/d\/([^/&#]+)/);
+    if (matchPath) {
+      id = matchPath[1];
+    }
+  }
+  if (id) {
+    return `https://lh3.googleusercontent.com/d/${id}`;
+  }
+  return url;
+}
+
+// Fetch Google Drive logo and convert to Base64, with a robust fallback to local canvas generation
+export async function fetchLogoBase64(logoUrl: string): Promise<string> {
+  const directUrl = getGoogleDriveDirectUrl(logoUrl);
+  try {
+    const response = await fetch(directUrl);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const blob = await response.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => resolve(generateLogoBase64());
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.warn("Failed to fetch Google Drive logo via fetch, trying Image element fallback:", error);
+    return new Promise<string>((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(img, 0, 0);
+            resolve(canvas.toDataURL('image/png'));
+            return;
+          }
+        } catch (err) {
+          console.error('Canvas drawImage failed:', err);
+        }
+        resolve(generateLogoBase64());
+      };
+      img.onerror = () => {
+        console.warn("Image element loading failed, using dynamic local logo.");
+        resolve(generateLogoBase64());
+      };
+      img.src = directUrl;
+    });
+  }
+}
+
+// Generate the beautiful pixel-perfect TECH 4 GEEKY Logo on-the-fly inside the client browser.
+// This matches the exact visual structure, colors, and font-weights of the official Logo.png image.
+export function generateLogoBase64(): string {
+  if (typeof document === 'undefined') return '';
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = 600;
+    canvas.height = 150;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+
+    // Clear background
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, 600, 150);
+
+    // Left half: Black rectangle block (from x = 10 to 290)
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(10, 10, 280, 130);
+
+    // Right half: White rectangle block with thin black border (from x = 290 to 590)
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(290, 10, 300, 130);
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(290, 10, 300, 130);
+
+    // Draw spaced white "TECH" text centered in the black block
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 44px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('TECH', 150, 75);
+
+    // Draw spaced black "GEEKY" text centered in the white block
+    ctx.fillStyle = '#000000';
+    ctx.font = 'bold 44px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('GEEKY', 450, 75);
+
+    // Draw the stylized split digit "4" overlapping the center-line (x = 290)
+    const drawFour = (color: string) => {
+      ctx.fillStyle = color;
+      ctx.font = '900 115px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('4', 290, 75);
+    };
+
+    // Left side of "4": rendered in White, clipped to the black block
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, 290, 150);
+    ctx.clip();
+    drawFour('#ffffff');
+    ctx.restore();
+
+    // Right side of "4": rendered in Black, clipped to the white block
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(290, 0, 310, 150);
+    ctx.clip();
+    drawFour('#000000');
+    ctx.restore();
+
+    return canvas.toDataURL('image/png');
+  } catch (error) {
+    console.error('Failed to generate logo base64 dynamically:', error);
+    return '';
+  }
+}
+
 export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Promise<void> {
   // Create instance of jsPDF (A4 page: 210mm x 297mm)
   const doc = new jsPDF({
@@ -90,7 +234,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
     format: 'a4'
   });
 
-  // Calculate chronological sequential Invoice ID starting at INV-008
+  // Calculate chronological sequential Invoice ID starting at INV-001
   const sortedSales = [...salesList].sort((a, b) => {
     const dateA = new Date(a.created_at || a.sale_date).getTime();
     const dateB = new Date(b.created_at || b.sale_date).getTime();
@@ -99,8 +243,8 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   });
 
   const saleIndex = sortedSales.findIndex(s => s.id === sale.id);
-  const sequenceNumber = saleIndex !== -1 ? 8 + saleIndex : 8;
-  const invoiceNo = `INV-${String(sequenceNumber).padStart(3, '0')}`;
+  const sequenceNumber = saleIndex !== -1 ? 1 + saleIndex : 1;
+  const invoiceNo = sale.invoice_no || `INV-${String(sequenceNumber).padStart(3, '0')}`;
 
   // Color Palette Definitions (Match the beautiful Navy banner from template)
   const navyColor = [18, 34, 64]; // Custom Deep Navy
@@ -116,36 +260,19 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   doc.setFillColor(navyColor[0], navyColor[1], navyColor[2]);
   doc.rect(15, 15, 180, 32, 'F');
 
-  // White Box container for TECH 4 GEEKY Logo
-  doc.setFillColor(255, 255, 255);
-  doc.rect(25, 20, 72, 14, 'F');
+  // Fetch and embed the logo from Google Drive link, with high-resolution canvas logo as a fallback
+  const logoUrl = 'https://drive.google.com/open?id=1kVnKI3jYuJO4QkmBtig52cargj1MGR92&usp=drive_fs';
+  const logoBase64 = await fetchLogoBase64(logoUrl);
+  if (logoBase64) {
+    const format = logoBase64.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
+    doc.addImage(logoBase64, format, 25, 18, 68, 17);
+  }
 
-  // Draw "TECH"
-  doc.setTextColor(0, 0, 0);
-  doc.setFont('Helvetica', 'bold');
-  doc.setFontSize(15);
-  doc.text('TECH', 29, 29.5);
-
-  // Black accent square behind "4"
-  doc.setFillColor(0, 0, 0);
-  doc.rect(49, 21.5, 9, 11, 'F');
-  
-  // White "4" inside the black square
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(11);
-  doc.text('4', 53.5, 29.5, { align: 'center' });
-
-  // Draw "GEEKY"
-  doc.setTextColor(0, 0, 0);
-  doc.setFont('Helvetica', 'bold');
-  doc.setFontSize(15);
-  doc.text('GEEKY', 61, 29.5);
-
-  // Slogan text below logo (Centered inside the Navy banner)
+  // Slogan text below logo (Centered precisely inside the Navy banner relative to the logo center)
   doc.setTextColor(255, 255, 255);
   doc.setFont('Helvetica', 'bold');
   doc.setFontSize(9.5);
-  doc.text('"NERD ABOUT TECH"', 61, 41, { align: 'center' });
+  doc.text('"NERD ABOUT TECH"', 59, 41.5, { align: 'center' });
 
   // Email ID text in header on the right
   doc.setFont('Helvetica', 'normal');
@@ -184,7 +311,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   doc.setFont('Helvetica', 'normal');
   doc.text('Date:', 133, 70);
   doc.setFont('Helvetica', 'bold');
-  doc.text(sale.sale_date, 155, 70);
+  doc.text(formatIndianDate(sale.sale_date), 155, 70);
 
 
   // --- 4. SERVICES TABLE ---
@@ -212,8 +339,9 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   const row1Y = tableY + 10;
   doc.setFont('Helvetica', 'normal');
   
-  const serviceText = `${sale.category} Service Statement`;
-  const splitDetails = doc.splitTextToSize(sale.description ? `${serviceText}\n${sale.description}` : serviceText, 100);
+  // Use Description Notes directly without the category prefix (falls back to category if description is blank)
+  const serviceText = sale.description ? sale.description.trim() : sale.category;
+  const splitDetails = doc.splitTextToSize(serviceText, 100);
   const textLinesCount = splitDetails.length;
   // Calculate height dynamically: 5mm per line plus 4mm padding
   const rowHeight = Math.max(12, textLinesCount * 5 + 4);
@@ -227,7 +355,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
 
   // Render row cell values
   doc.text('1', 22.5, row1Y + (rowHeight / 2) + 1, { align: 'center' });
-  doc.text(sale.sale_date, 42.5, row1Y + (rowHeight / 2) + 1, { align: 'center' });
+  doc.text(formatIndianDate(sale.sale_date), 42.5, row1Y + (rowHeight / 2) + 1, { align: 'center' });
   
   doc.setFont('Helvetica', 'bold');
   doc.text(splitDetails, 58, row1Y + 5);
@@ -275,36 +403,37 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
 
   // Left Section: Bank Account and Transfer details
   doc.setFont('Helvetica', 'bold');
-  doc.setFontSize(10.5);
-  doc.text('Payment Details:', 20, paymentBlockY + 7);
+  doc.setFontSize(10);
+  doc.text('Payment Details:', 20, paymentBlockY + 6);
   doc.setFont('Helvetica', 'normal');
-  doc.setFontSize(9.5);
-  doc.text('Kindly complete the payment via Bank Details Provided:', 52, paymentBlockY + 7);
+  doc.setFontSize(8.5);
+  doc.setTextColor(110, 110, 110);
+  doc.text('Kindly complete the payment via Bank Details Provided:', 20, paymentBlockY + 11);
 
-  // Bullet items for Bank Account Details
-  const detailsOffset = paymentBlockY + 14;
+  // Columnar Aligned Bank Account Details (Labels at X=20, Values perfectly aligned at X=48)
+  const detailsOffset = paymentBlockY + 18;
+  
+  doc.setTextColor(0, 0, 0);
   doc.setFont('Helvetica', 'bold');
   doc.text('Account No:', 20, detailsOffset);
-  doc.setFont('Helvetica', 'bold');
   doc.setTextColor(navyColor[0], navyColor[1], navyColor[2]);
-  doc.text('44089862533', 52, detailsOffset);
+  doc.text('44089862533', 48, detailsOffset);
 
   doc.setTextColor(0, 0, 0);
   doc.setFont('Helvetica', 'bold');
   doc.text('IFSC Code:', 20, detailsOffset + 6);
-  doc.setFont('Helvetica', 'bold');
   doc.setTextColor(navyColor[0], navyColor[1], navyColor[2]);
-  doc.text('SBIN0017060', 52, detailsOffset + 6);
+  doc.text('SBIN0017060', 48, detailsOffset + 6);
 
   doc.setTextColor(0, 0, 0);
   doc.setFont('Helvetica', 'bold');
   doc.text('UPI ID:', 20, detailsOffset + 12);
-  doc.setFont('Helvetica', 'bold');
   doc.setTextColor(navyColor[0], navyColor[1], navyColor[2]);
-  doc.text('ajaykumar6405-4@okicici', 52, detailsOffset + 12);
+  doc.text('ajaykumar6405-4@okicici', 48, detailsOffset + 12);
 
   doc.setTextColor(120, 120, 120);
   doc.setFont('Helvetica', 'italic');
+  doc.setFontSize(8.5);
   doc.text('Due Date: 5 days from the date of this invoice.', 20, detailsOffset + 19);
 
   // Right Section: Scan & Pay QR Code Box

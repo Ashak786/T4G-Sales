@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, FormEvent, Fragment } from 'react';
+import { useState, useEffect, useMemo, useRef, FormEvent, Fragment } from 'react';
 import { 
   DollarSign, 
   Plus, 
@@ -31,14 +31,18 @@ import {
   FileText,
   Calculator,
   Sun,
-  Moon
+  Moon,
+  ArrowUpRight,
+  ArrowDownRight,
+  Sparkles
 } from 'lucide-react';
 import { 
   Sale, 
   getLocalSales, 
-  saveLocalSales 
-} from './supabase';
-import { generateInvoicePDF } from './utils/pdfGenerator';
+  saveLocalSales,
+  DEFAULT_SEED_SALES
+} from './salesDb';
+import { generateInvoicePDF, formatIndianDate } from './utils/pdfGenerator';
 import {
   initAuth,
   googleSignIn,
@@ -50,7 +54,8 @@ import {
   syncLocalToSheets,
   setSpreadsheetId,
   extractSpreadsheetId,
-  clearSheetSales
+  clearSheetSales,
+  seedSheetSales
 } from './googleWorkspace';
 
 const getFriendlyErrorMessage = (err: any): string => {
@@ -163,6 +168,12 @@ export default function App() {
   const [sheetInput, setSheetInput] = useState<string>(() => {
     return localStorage.getItem('tech4geeky_google_sheet_id') || '1yE9_IElbygv0tMCTLS7en-HsdxigwQKk';
   });
+  const [syncFrequency, setSyncFrequency] = useState<'manual' | '3' | '5' | '15'>(() => {
+    return (localStorage.getItem('tech4geeky_sync_frequency') as any) || 'manual';
+  });
+  const [lastSynced, setLastSynced] = useState<string | null>(() => {
+    return localStorage.getItem('tech4geeky_last_synced_time');
+  });
   
   // Search & Filters State
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -170,6 +181,10 @@ export default function App() {
   const [selectedStatus, setSelectedStatus] = useState<string>('All');
   const [selectedPayment, setSelectedPayment] = useState<string>('All');
   const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'amount-desc' | 'amount-asc'>('date-desc');
+
+  // Stock Market Graph State
+  const [chartType, setChartType] = useState<'area' | 'candlestick' | 'bars'>('area');
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   // Modal Control States
   const [isAddOpen, setIsAddOpen] = useState<boolean>(false);
@@ -186,7 +201,6 @@ export default function App() {
     client_email: string;
     client_phone: string;
     amount: string;
-    status: 'Paid' | 'Pending' | 'Refunded';
     payment_method: 'Cash' | 'UPI/Online' | 'Bank Transfer';
     description: string;
   }>({
@@ -196,7 +210,6 @@ export default function App() {
     client_email: '',
     client_phone: '',
     amount: '',
-    status: 'Paid',
     payment_method: 'UPI/Online',
     description: ''
   });
@@ -255,32 +268,30 @@ export default function App() {
   const chartData = useMemo(() => {
     const monthGroups: { [key: string]: { label: string; amount: number; yearMonthVal: string } } = {};
     sales.forEach(sale => {
-      if (sale.status === 'Paid' || sale.status === 'Pending') {
-        const dateStr = sale.sale_date;
-        try {
-          const date = new Date(dateStr);
-          const monthLabel = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
-          const yearMonthVal = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-          
-          if (!monthGroups[yearMonthVal]) {
-            monthGroups[yearMonthVal] = {
-              label: monthLabel,
-              amount: 0,
-              yearMonthVal
-            };
-          }
-          monthGroups[yearMonthVal].amount += sale.amount;
-        } catch {
-          const fallbackKey = dateStr.slice(0, 7);
-          if (!monthGroups[fallbackKey]) {
-            monthGroups[fallbackKey] = {
-              label: fallbackKey,
-              amount: 0,
-              yearMonthVal: fallbackKey
-            };
-          }
-          monthGroups[fallbackKey].amount += sale.amount;
+      const dateStr = sale.sale_date;
+      try {
+        const date = new Date(dateStr);
+        const monthLabel = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
+        const yearMonthVal = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+        
+        if (!monthGroups[yearMonthVal]) {
+          monthGroups[yearMonthVal] = {
+            label: monthLabel,
+            amount: 0,
+            yearMonthVal
+          };
         }
+        monthGroups[yearMonthVal].amount += sale.amount;
+      } catch {
+        const fallbackKey = dateStr.slice(0, 7);
+        if (!monthGroups[fallbackKey]) {
+          monthGroups[fallbackKey] = {
+            label: fallbackKey,
+            amount: 0,
+            yearMonthVal: fallbackKey
+          };
+        }
+        monthGroups[fallbackKey].amount += sale.amount;
       }
     });
 
@@ -297,6 +308,89 @@ export default function App() {
     return sortedMonths;
   }, [sales]);
 
+  const handleAuthError = (err: any): boolean => {
+    if (!err) return false;
+    const msg = err.message || String(err);
+    const isApiDisabled = msg.includes('API_DISABLED_ERROR');
+    const isAuthErr = !isApiDisabled && (
+      msg.includes('401') || 
+      msg.includes('403') || 
+      msg.toLowerCase().includes('access denied') || 
+      msg.toLowerCase().includes('unauthorized') ||
+      msg.toLowerCase().includes('permissions') ||
+      msg.toLowerCase().includes('credentials') ||
+      msg.toLowerCase().includes('sign-in') ||
+      msg.toLowerCase().includes('re-sign')
+    );
+
+    if (isAuthErr) {
+      setUser(null);
+      setGoogleToken(null);
+      localStorage.removeItem('tech4geeky_google_access_token');
+      setDbSource('local');
+      setSales(getLocalSales());
+      setErrorMessage('Google Connection Expired or Lacks Scopes: Your session has been disconnected. Please click "Sign in with Google Account" in settings to authorize Google Sheets.');
+      return true;
+    }
+    return false;
+  };
+
+  const updateSyncedTime = () => {
+    const timeStr = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setLastSynced(timeStr);
+    localStorage.setItem('tech4geeky_last_synced_time', timeStr);
+  };
+
+  // Save sync frequency on change
+  useEffect(() => {
+    localStorage.setItem('tech4geeky_sync_frequency', syncFrequency);
+  }, [syncFrequency]);
+
+  // Silent Auto-Sync function (no alerts)
+  const handleAutoSync = async () => {
+    if (!googleToken || syncing) return;
+    setSyncing(true);
+    setErrorMessage('');
+    try {
+      const local = getLocalSales();
+      const result = await syncLocalToSheets(googleToken, local);
+      if (result.error) {
+        setErrorMessage(result.error);
+      } else {
+        await loadData(googleToken);
+        updateSyncedTime();
+        console.log(`Auto-synced successfully at ${new Date().toLocaleTimeString()}`);
+      }
+    } catch (err: any) {
+      if (!handleAuthError(err)) {
+        setErrorMessage(getFriendlyErrorMessage(err));
+      }
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const autoSyncRef = useRef<() => void>();
+  autoSyncRef.current = handleAutoSync;
+
+  // Auto-sync interval
+  useEffect(() => {
+    if (!googleToken || syncFrequency === 'manual') return;
+
+    const intervalMinutes = parseInt(syncFrequency, 10);
+    if (isNaN(intervalMinutes)) return;
+
+    const intervalMs = intervalMinutes * 60 * 1000;
+
+    const intervalId = setInterval(() => {
+      if (autoSyncRef.current) {
+        autoSyncRef.current();
+      }
+    }, intervalMs);
+
+    return () => clearInterval(intervalId);
+  }, [googleToken, syncFrequency]);
+
   // Load Sales initially
   const loadData = async (activeToken?: string | null) => {
     setLoading(true);
@@ -304,10 +398,16 @@ export default function App() {
     const curToken = activeToken !== undefined ? activeToken : googleToken;
     try {
       if (curToken) {
-        const sheetsSales = await fetchSheetsSales(curToken);
+        let sheetsSales = await fetchSheetsSales(curToken);
+        if (sheetsSales.length === 0) {
+          // If sheets is empty, automatically seed it with default seed database
+          await seedSheetSales(curToken, DEFAULT_SEED_SALES);
+          sheetsSales = await fetchSheetsSales(curToken);
+        }
         setSales(sheetsSales);
         setDbSource('sheets');
         saveLocalSales(sheetsSales);
+        updateSyncedTime();
       } else {
         const local = getLocalSales();
         setSales(local);
@@ -315,28 +415,11 @@ export default function App() {
       }
     } catch (err: any) {
       console.error(err);
-      const isApiDisabled = err.message?.includes('API_DISABLED_ERROR');
-      const isAuthErr = !isApiDisabled && (
-                        err.message?.includes('401') || 
-                        err.message?.includes('403') || 
-                        err.message?.toLowerCase().includes('access denied') || 
-                        err.message?.toLowerCase().includes('unauthorized') ||
-                        err.message?.toLowerCase().includes('permissions') ||
-                        err.message?.toLowerCase().includes('credentials') ||
-                        err.message?.toLowerCase().includes('sign-in') ||
-                        err.message?.toLowerCase().includes('re-sign')
-                      );
-      if (isApiDisabled) {
+      if (!handleAuthError(err)) {
         setErrorMessage(getFriendlyErrorMessage(err));
-      } else if (isAuthErr) {
-        setUser(null);
-        setGoogleToken(null);
-        setErrorMessage('Google Connection Expired or Lacks Scopes: Please sign out and sign in again to grant permissions.');
-      } else {
-        setErrorMessage(getFriendlyErrorMessage(err));
+        setSales(getLocalSales());
+        setDbSource('local');
       }
-      setSales(getLocalSales());
-      setDbSource('local');
     } finally {
       setLoading(false);
     }
@@ -407,6 +490,31 @@ export default function App() {
     }
   };
 
+  const getCategoryConfig = (category: string) => {
+    return categoryConfig[category as keyof typeof categoryConfig] || {
+      bg: isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700',
+      tagBg: 'bg-slate-600 text-white',
+      border: 'border-slate-200',
+      text: 'text-slate-800',
+      icon: FileText,
+      colorHex: '#475569',
+      lightHex: '#f1f5f9'
+    };
+  };
+
+  const getInvoiceNo = (sale: Sale) => {
+    if (sale.invoice_no) return sale.invoice_no;
+    const sortedSales = [...sales].sort((a, b) => {
+      const dateA = new Date(a.created_at || a.sale_date).getTime();
+      const dateB = new Date(b.created_at || b.sale_date).getTime();
+      if (dateA !== dateB) return dateA - dateB;
+      return a.id.localeCompare(b.id);
+    });
+    const idx = sortedSales.findIndex(s => s.id === sale.id);
+    const sequenceNumber = idx !== -1 ? 1 + idx : 1;
+    return `INV-${String(sequenceNumber).padStart(3, '0')}`;
+  };
+
   // Payment method icons / labels mapped
   const paymentMethods = ['Cash', 'UPI/Online', 'Bank Transfer'];
   const categories: Array<'Video editing' | 'Web Site development' | 'Govt. Service (Appl.)' | 'PC Repair' | 'Graphic Designing'> = [
@@ -435,7 +543,9 @@ export default function App() {
         await loadData(googleToken);
       }
     } catch (err: any) {
-      setErrorMessage(getFriendlyErrorMessage(err));
+      if (!handleAuthError(err)) {
+        setErrorMessage(getFriendlyErrorMessage(err));
+      }
     } finally {
       setSyncing(false);
     }
@@ -454,8 +564,10 @@ export default function App() {
         await loadData(googleToken);
         alert('Google Sheets table successfully cleared!');
       } catch (err: any) {
-        setErrorMessage(getFriendlyErrorMessage(err));
-        alert('Failed to clear sheet data: ' + err.message);
+        if (!handleAuthError(err)) {
+          setErrorMessage(getFriendlyErrorMessage(err));
+          alert('Failed to clear sheet data: ' + err.message);
+        }
       } finally {
         setLoading(false);
       }
@@ -479,7 +591,6 @@ export default function App() {
         client_email: formData.client_email.trim() || undefined,
         client_phone: formData.client_phone.trim() || undefined,
         amount: Number(formData.amount),
-        status: formData.status,
         payment_method: formData.payment_method,
         description: formData.description.trim() || undefined
       };
@@ -513,13 +624,14 @@ export default function App() {
         client_email: '',
         client_phone: '',
         amount: '',
-        status: 'Paid',
         payment_method: 'UPI/Online',
         description: ''
       });
       setIsAddOpen(false);
     } catch (err: any) {
-      setErrorMessage(getFriendlyErrorMessage(err));
+      if (!handleAuthError(err)) {
+        setErrorMessage(getFriendlyErrorMessage(err));
+      }
     } finally {
       setLoading(false);
     }
@@ -535,7 +647,6 @@ export default function App() {
       client_email: sale.client_email || '',
       client_phone: sale.client_phone || '',
       amount: String(sale.amount),
-      status: sale.status,
       payment_method: sale.payment_method,
       description: sale.description || ''
     });
@@ -561,7 +672,6 @@ export default function App() {
         client_email: formData.client_email.trim() || undefined,
         client_phone: formData.client_phone.trim() || undefined,
         amount: Number(formData.amount),
-        status: formData.status,
         payment_method: formData.payment_method,
         description: formData.description.trim() || undefined
       };
@@ -591,7 +701,9 @@ export default function App() {
       setIsEditOpen(false);
       setActiveSale(null);
     } catch (err: any) {
-      setErrorMessage(getFriendlyErrorMessage(err));
+      if (!handleAuthError(err)) {
+        setErrorMessage(getFriendlyErrorMessage(err));
+      }
     } finally {
       setLoading(false);
     }
@@ -616,9 +728,11 @@ export default function App() {
         await deleteSheetSale(googleToken, id);
       } catch (err: any) {
         console.error('Background Sheet deletion error:', err);
-        setErrorMessage('Failed to sync deletion to Google Sheets: ' + getFriendlyErrorMessage(err));
-        // Reload data to ensure state is in sync with backend if error occurs
-        await loadData(googleToken);
+        if (!handleAuthError(err)) {
+          setErrorMessage('Failed to sync deletion to Google Sheets: ' + getFriendlyErrorMessage(err));
+          // Reload data to ensure state is in sync with backend if error occurs
+          await loadData(googleToken);
+        }
       }
     }
   };
@@ -650,11 +764,6 @@ export default function App() {
       result = result.filter((s) => s.category === selectedCategory);
     }
 
-    // Status check
-    if (selectedStatus !== 'All') {
-      result = result.filter((s) => s.status === selectedStatus);
-    }
-
     // Payment method filter
     if (selectedPayment !== 'All') {
       result = result.filter((s) => s.payment_method === selectedPayment);
@@ -674,13 +783,12 @@ export default function App() {
     });
 
     return result;
-  }, [sales, searchQuery, selectedCategory, selectedStatus, selectedPayment, sortBy]);
+  }, [sales, searchQuery, selectedCategory, selectedPayment, sortBy]);
 
   // Aggregate Metrics
   const stats = useMemo(() => {
     let totalSales = 0;
-    let pendingSales = 0;
-    let refundedSales = 0;
+    let totalCount = 0;
     let videoAmount = 0;
     let websiteAmount = 0;
     let govtApplAmount = 0;
@@ -689,13 +797,8 @@ export default function App() {
 
     sales.forEach((s) => {
       // Overall stats
-      if (s.status === 'Paid') {
-        totalSales += s.amount;
-      } else if (s.status === 'Pending') {
-        pendingSales += s.amount;
-      } else if (s.status === 'Refunded') {
-        refundedSales += s.amount;
-      }
+      totalSales += s.amount;
+      totalCount += 1;
 
       // Breakdown by categories
       if (s.category === 'Video editing') {
@@ -724,40 +827,14 @@ export default function App() {
 
     return {
       totalSales,
-      pendingSales,
-      refundedSales,
+      totalCount,
       categorySummary,
       maximum,
       sumAll
     };
   }, [sales]);
 
-  // Dynamic visual feedback helpers
-  const getStatusBadge = (status: 'Paid' | 'Pending' | 'Refunded') => {
-    switch (status) {
-      case 'Paid':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            Paid
-          </span>
-        );
-      case 'Pending':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-            Pending
-          </span>
-        );
-      case 'Refunded':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-800 border border-gray-200">
-            <span className="w-1.5 h-1.5 rounded-full bg-gray-400"></span>
-            Refunded
-          </span>
-        );
-    }
-  };
+
 
   return (
     <div className={`min-h-screen ${isDark ? 'bg-slate-900 text-slate-100' : 'bg-slate-100 text-slate-800'} font-sans antialiased flex flex-col md:py-6 md:px-4 items-center justify-start transition-colors duration-200`}>
@@ -828,20 +905,32 @@ export default function App() {
           <div className={`mt-3.5 flex items-center justify-between text-xs px-3 py-2 rounded-lg border transition-colors duration-200 ${
             isDark ? 'bg-slate-900/60 border-slate-800/80 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-655'
           }`}>
-            <div className="flex items-center gap-2">
-              {dbSource === 'sheets' ? (
-                <>
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-                  </span>
-                  <span className={`font-semibold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Google Sheets Connected</span>
-                </>
-              ) : (
-                <>
-                  <span className="h-2.5 w-2.5 rounded-full bg-amber-500"></span>
-                  <span className={`font-medium ${isDark ? 'text-slate-300' : 'text-slate-650'}`}>Local Space (Offline Sandbox)</span>
-                </>
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-2">
+                {dbSource === 'sheets' ? (
+                  <>
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                    </span>
+                    <span className={`font-semibold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Google Sheets Connected</span>
+                    {syncFrequency !== 'manual' && (
+                      <span className="text-[10px] bg-slate-800 text-cyan-400 px-1.5 py-0.2 rounded font-mono font-medium">
+                        Auto {syncFrequency}m
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="h-2.5 w-2.5 rounded-full bg-amber-500"></span>
+                    <span className={`font-medium ${isDark ? 'text-slate-300' : 'text-slate-650'}`}>Local Space (Offline Sandbox)</span>
+                  </>
+                )}
+              </div>
+              {dbSource === 'sheets' && lastSynced && (
+                <span className="text-[9px] text-slate-400 pl-4.5 font-mono">
+                  Last synced: {lastSynced}
+                </span>
               )}
             </div>
 
@@ -910,70 +999,431 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Outstanding/Pending Card */}
+              {/* Total Invoices Card */}
               <div className={`p-3.5 bg-gradient-to-br ${
                 isDark 
-                  ? 'from-amber-950/30 to-slate-900 border-amber-500/20' 
-                  : 'from-amber-50/60 to-amber-100/30 border-amber-200 shadow-2xs'
+                  ? 'from-indigo-950/30 to-slate-900 border-indigo-500/20' 
+                  : 'from-indigo-50/60 to-indigo-100/30 border-indigo-200 shadow-2xs'
               } border rounded-2xl relative overflow-hidden transition-all duration-200`}>
-                <div className="absolute top-0 right-0 p-3 text-amber-400/20">
-                  <Clock className="w-12 h-12" />
+                <div className="absolute top-0 right-0 p-3 text-indigo-400/20">
+                  <FileText className="w-12 h-12" />
                 </div>
-                <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Pending Receivables</p>
-                <p className={`text-2xl font-black ${isDark ? 'text-amber-400' : 'text-amber-600'} mt-1`}>₹{stats.pendingSales.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Total Invoices</p>
+                <p className={`text-2xl font-black ${isDark ? 'text-indigo-400' : 'text-indigo-600'} mt-1`}>{stats.totalCount}</p>
                 <div className="mt-2 text-[10px] text-slate-400 flex items-center gap-1">
-                  <span className={`${isDark ? 'text-amber-400' : 'text-amber-600'} font-semibold`}>⏳ Awaiting Collection</span>
+                  <span className={`${isDark ? 'text-indigo-400' : 'text-indigo-600'} font-semibold`}>📝 Issued Invoices</span>
                 </div>
               </div>
 
             </div>
 
-            {/* Visual Bar Chart representing sales performance over time */}
-            <div className={`p-4 border rounded-2xl transition-colors duration-200 mt-1 ${
-              isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200/80 shadow-3xs'
+            {/* Dynamic Stock Market styled Financial Chart */}
+            <div className={`p-4 border rounded-2xl transition-all duration-300 mt-1 relative overflow-hidden ${
+              isDark 
+                ? 'bg-slate-900/60 border-slate-800 shadow-xl' 
+                : 'bg-white border-slate-200/80 shadow-md'
             }`}>
-              <div className="flex items-center justify-between mb-3">
-                <span className={`text-[10px] font-black tracking-wider uppercase ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Monthly Revenue Chart</span>
-                <span className="text-[9px] font-semibold text-slate-400">Monthly Timeline</span>
+              
+              {/* Chart Top Header & Controls */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[10px] font-black tracking-wider uppercase ${isDark ? 'text-slate-400' : 'text-slate-500'} flex items-center gap-1`}>
+                      <Activity className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+                      REVENUE TICKER INDEX
+                    </span>
+                    <span className={`h-1.5 w-1.5 rounded-full ${isDark ? 'bg-emerald-400' : 'bg-emerald-500'} animate-ping`} />
+                  </div>
+                  
+                  {/* Dynamic Interactive Value */}
+                  <div className="flex items-baseline gap-2 mt-1">
+                    <span className={`text-2xl font-black font-mono tracking-tight ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
+                      ₹{(hoveredIndex !== null ? chartData[hoveredIndex]?.amount : (chartData[chartData.length - 1]?.amount || 0)).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    </span>
+                    
+                    {/* Growth Percentage Ticker Badge */}
+                    {(() => {
+                      const activeIdx = hoveredIndex !== null ? hoveredIndex : chartData.length - 1;
+                      const currentVal = chartData[activeIdx]?.amount || 0;
+                      const prevVal = chartData[activeIdx - 1]?.amount || 0;
+                      const pctChange = prevVal > 0 ? ((currentVal - prevVal) / prevVal) * 100 : 0;
+                      const isUp = pctChange >= 0;
+                      
+                      if (activeIdx === 0 || prevVal === 0) {
+                        return (
+                          <span className="text-[10px] font-bold text-slate-400 bg-slate-450/10 px-1.5 py-0.5 rounded-md">
+                            Baseline
+                          </span>
+                        );
+                      }
+                      
+                      return (
+                        <span className={`text-[10.5px] font-black tracking-wide px-2 py-0.5 rounded-lg flex items-center gap-0.5 ${
+                          isUp 
+                            ? 'bg-emerald-500/10 text-emerald-500 dark:text-emerald-400' 
+                            : 'bg-rose-500/10 text-rose-500 dark:text-rose-400'
+                        }`}>
+                          {isUp ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+                          {isUp ? '+' : ''}{pctChange.toFixed(1)}%
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  
+                  {/* Selected Month Indicator */}
+                  <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
+                    {hoveredIndex !== null 
+                      ? `Hovered: ${chartData[hoveredIndex]?.date}` 
+                      : `Active Month: ${chartData[chartData.length - 1]?.date || 'N/A'}`}
+                  </p>
+                </div>
+
+                {/* Stock Toggles (Line/Area vs Candlestick vs Bars) */}
+                <div className={`flex p-0.5 rounded-lg border self-start sm:self-center ${
+                  isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'
+                }`}>
+                  {(['area', 'candlestick', 'bars'] as const).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setChartType(type)}
+                      className={`text-[9.5px] font-bold tracking-wider px-2.5 py-1 rounded-md transition duration-200 uppercase cursor-pointer ${
+                        chartType === type
+                          ? isDark 
+                            ? 'bg-slate-800 text-indigo-400 border border-slate-750 shadow-xs font-black' 
+                            : 'bg-white text-indigo-600 border border-slate-200 shadow-xs font-black'
+                          : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      {type === 'area' ? 'Trend' : type === 'candlestick' ? 'Candles' : 'Volume'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Responsive SVG Canvas Container */}
+              <div className="relative h-44 w-full">
+                <svg 
+                  className="w-full h-full overflow-visible" 
+                  viewBox="0 0 500 180" 
+                  preserveAspectRatio="none"
+                >
+                  <defs>
+                    {/* Neon Glowing Shadows for Trends */}
+                    <filter id="glow" x="-10%" y="-10%" width="120%" height="120%">
+                      <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#6366f1" floodOpacity="0.4" />
+                    </filter>
+                    <filter id="glow-emerald" x="-10%" y="-10%" width="120%" height="120%">
+                      <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#10b981" floodOpacity="0.4" />
+                    </filter>
+                    <filter id="glow-rose" x="-10%" y="-10%" width="120%" height="120%">
+                      <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#ef4444" floodOpacity="0.4" />
+                    </filter>
+                    
+                    {/* Soft Gradient fills */}
+                    <linearGradient id="area-grad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#6366f1" stopOpacity="0.3" />
+                      <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0" />
+                    </linearGradient>
+                    <linearGradient id="emerald-grad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#10b981" stopOpacity="0.25" />
+                      <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
+                    </linearGradient>
+                  </defs>
+
+                  {/* Horizontal Guideline Grids */}
+                  <line x1="10" y1="25" x2="490" y2="25" stroke={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)"} strokeDasharray="3 3" />
+                  <line x1="10" y1="65" x2="490" y2="65" stroke={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)"} strokeDasharray="3 3" />
+                  <line x1="10" y1="105" x2="490" y2="105" stroke={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)"} strokeDasharray="3 3" />
+                  <line x1="10" y1="145" x2="490" y2="145" stroke={isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)"} strokeDasharray="3 3" />
+
+                  {(() => {
+                    const paddingX = 35;
+                    const paddingY = 25;
+                    const chartW = 500 - paddingX * 2;
+                    const chartH = 180 - paddingY * 2;
+
+                    const maxAmount = Math.max(...chartData.map(d => d.amount), 1);
+                    const minAmount = Math.min(...chartData.map(d => d.amount), 0);
+
+                    const points = chartData.map((item, index) => {
+                      const x = paddingX + (chartData.length > 1 ? (index / (chartData.length - 1)) * chartW : chartW / 2);
+                      const y = 180 - paddingY - (maxAmount > minAmount ? ((item.amount - minAmount) / (maxAmount - minAmount)) * chartH : chartH / 2);
+                      return { x, y, item, index };
+                    });
+
+                    const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+                    const areaPath = points.length > 0 ? `${linePath} L ${points[points.length - 1].x} ${180 - paddingY} L ${points[0].x} ${180 - paddingY} Z` : '';
+
+                    return (
+                      <>
+                        {/* AREA TYPE RENDER */}
+                        {chartType === 'area' && (
+                          <>
+                            {/* Area Gradient Background Fill */}
+                            {areaPath && (
+                              <path 
+                                d={areaPath} 
+                                fill="url(#area-grad)" 
+                                className="transition-all duration-300"
+                              />
+                            )}
+
+                            {/* Main Trend Line with Glowing shadow */}
+                            {linePath && (
+                              <path 
+                                d={linePath} 
+                                fill="none" 
+                                stroke={isDark ? "#818cf8" : "#4f46e5"} 
+                                strokeWidth={2.5} 
+                                strokeLinecap="round" 
+                                filter="url(#glow)"
+                                className="transition-all duration-300"
+                              />
+                            )}
+
+                            {/* Plot circles for each milestone */}
+                            {points.map((p, idx) => (
+                              <g key={idx} className="group/dot">
+                                <circle 
+                                  cx={p.x} 
+                                  cy={p.y} 
+                                  r={hoveredIndex === idx ? 6 : 3.5} 
+                                  fill={isDark ? '#4f46e5' : '#818cf8'} 
+                                  stroke={isDark ? '#e0e7ff' : '#ffffff'} 
+                                  strokeWidth={1.5}
+                                  className="transition-all duration-200 cursor-pointer"
+                                />
+                              </g>
+                            ))}
+                          </>
+                        )}
+
+                        {/* CANDLESTICK TYPE RENDER */}
+                        {chartType === 'candlestick' && (
+                          <g className="transition-all duration-300">
+                            {points.map((p, idx) => {
+                              const amount = p.item.amount;
+                              // Procedural Open / Close to form candlesticks based on actual monthly performance
+                              const prevAmount = chartData[idx - 1]?.amount || amount * 0.9;
+                              const isProfit = amount >= prevAmount;
+
+                              const closeVal = amount;
+                              const openVal = prevAmount;
+                              
+                              // Create procedural High/Low limit
+                              const amplitude = (maxAmount - minAmount) * 0.12 || 100;
+                              const highVal = Math.max(openVal, closeVal) + amplitude * (1 + 0.3 * Math.sin(idx));
+                              const lowVal = Math.max(Math.min(openVal, closeVal) - amplitude * (1 + 0.3 * Math.cos(idx)), 0);
+
+                              // Map everything to Y coordinates
+                              const mapY = (val: number) => 180 - paddingY - (maxAmount > minAmount ? ((val - minAmount) / (maxAmount - minAmount)) * chartH : chartH / 2);
+                              const yOpen = mapY(openVal);
+                              const yClose = mapY(closeVal);
+                              const yHigh = mapY(highVal);
+                              const yLow = mapY(lowVal);
+
+                              const rectY = Math.min(yOpen, yClose);
+                              const rectH = Math.max(Math.abs(yOpen - yClose), 4);
+                              const candleWidth = Math.max(Math.min(chartW / chartData.length * 0.45, 16), 5);
+
+                              const candleColor = isProfit 
+                                ? (isDark ? '#10b981' : '#059669') 
+                                : (isDark ? '#ef4444' : '#dc2626');
+
+                              return (
+                                <g key={idx} className="cursor-pointer">
+                                  {/* Shadow wick line */}
+                                  <line 
+                                    x1={p.x} 
+                                    y1={yHigh} 
+                                    x2={p.x} 
+                                    y2={yLow} 
+                                    stroke={candleColor} 
+                                    strokeWidth={1.5} 
+                                  />
+                                  {/* Candle Body rect */}
+                                  <rect 
+                                    x={p.x - candleWidth / 2} 
+                                    y={rectY} 
+                                    width={candleWidth} 
+                                    height={rectH} 
+                                    fill={candleColor}
+                                    rx={1}
+                                    stroke={candleColor}
+                                    strokeWidth={hoveredIndex === idx ? 1.5 : 0}
+                                    className="transition-all duration-200"
+                                    style={{
+                                      filter: hoveredIndex === idx 
+                                        ? (isProfit ? 'url(#glow-emerald)' : 'url(#glow-rose)') 
+                                        : 'none'
+                                    }}
+                                  />
+                                </g>
+                              );
+                            })}
+                          </g>
+                        )}
+
+                        {/* VOLUME BARS TYPE RENDER */}
+                        {chartType === 'bars' && (
+                          <g className="transition-all duration-300">
+                            {points.map((p, idx) => {
+                              const barW = Math.max(Math.min(chartW / chartData.length * 0.6, 24), 6);
+                              const barH = (180 - paddingY) - p.y;
+                              const isHovered = hoveredIndex === idx;
+
+                              return (
+                                <g key={idx} className="cursor-pointer">
+                                  <rect 
+                                    x={p.x - barW / 2} 
+                                    y={p.y} 
+                                    width={barW} 
+                                    height={Math.max(barH, 3)} 
+                                    fill={isHovered ? (isDark ? '#818cf8' : '#4f46e5') : (isDark ? '#4f46e5' : '#c7d2fe')} 
+                                    rx={2}
+                                    opacity={isHovered ? 1 : 0.8}
+                                    className="transition-all duration-150"
+                                  />
+                                </g>
+                              );
+                            })}
+                          </g>
+                        )}
+
+                        {/* Interactive Vertical and Horizontal Crosshair overlay */}
+                        {hoveredIndex !== null && points[hoveredIndex] && (() => {
+                          const hp = points[hoveredIndex];
+                          const prevPrice = chartData[hoveredIndex - 1]?.amount || hp.item.amount;
+                          const upColor = hp.item.amount >= prevPrice ? "#10b981" : "#ef4444";
+
+                          return (
+                            <>
+                              {/* Vertical dotted crosshair */}
+                              <line 
+                                x1={hp.x} 
+                                y1={15} 
+                                x2={hp.x} 
+                                y2={180 - paddingY} 
+                                stroke={isDark ? "rgba(129, 140, 248, 0.4)" : "rgba(79, 70, 229, 0.35)"} 
+                                strokeDasharray="3 3" 
+                                strokeWidth={1} 
+                              />
+                              {/* Horizontal dotted crosshair */}
+                              <line 
+                                x1={15} 
+                                y1={hp.y} 
+                                x2={485} 
+                                y2={hp.y} 
+                                stroke={isDark ? "rgba(129, 140, 248, 0.4)" : "rgba(79, 70, 229, 0.35)"} 
+                                strokeDasharray="3 3" 
+                                strokeWidth={1} 
+                              />
+                              
+                              {/* Intersection pulsing coordinate circle */}
+                              <circle 
+                                cx={hp.x} 
+                                cy={hp.y} 
+                                r={8} 
+                                fill={upColor} 
+                                opacity={0.3} 
+                                className="animate-ping" 
+                              />
+                              <circle 
+                                cx={hp.x} 
+                                cy={hp.y} 
+                                r={4.5} 
+                                fill={upColor} 
+                                stroke="#ffffff" 
+                                strokeWidth={1.5} 
+                              />
+                            </>
+                          );
+                        })()}
+
+                        {/* If not hovering, draw a real-time pulsing live-head tracker node on the last point */}
+                        {hoveredIndex === null && points.length > 0 && (() => {
+                          const lp = points[points.length - 1];
+                          const prevLpPrice = chartData[chartData.length - 2]?.amount || lp.item.amount;
+                          const liveColor = lp.item.amount >= prevLpPrice ? "#10b981" : "#818cf8";
+                          return (
+                            <>
+                              <circle 
+                                cx={lp.x} 
+                                cy={lp.y} 
+                                r={7} 
+                                fill={liveColor} 
+                                opacity={0.3} 
+                                className="animate-pulse" 
+                              />
+                              <circle 
+                                cx={lp.x} 
+                                cy={lp.y} 
+                                r={3.5} 
+                                fill={liveColor} 
+                                stroke="#ffffff" 
+                                strokeWidth={1} 
+                              />
+                            </>
+                          );
+                        })()}
+
+                        {/* Interactive hover band trigger zones (Invisible SVG overlay slices) */}
+                        {points.map((p, idx) => {
+                          const sliceW = 500 / chartData.length;
+                          return (
+                            <rect
+                              key={`trigger-${idx}`}
+                              x={p.x - sliceW / 2}
+                              y={0}
+                              width={sliceW}
+                              height={180}
+                              fill="transparent"
+                              className="cursor-crosshair"
+                              onMouseEnter={() => setHoveredIndex(idx)}
+                              onMouseLeave={() => setHoveredIndex(null)}
+                            />
+                          );
+                        })}
+
+                        {/* X Axis labels (Dates) */}
+                        <g>
+                          {points.map((p, idx) => {
+                            // Only draw a subset if there are many labels
+                            const skipFactor = chartData.length > 8 ? 2 : 1;
+                            if (idx % skipFactor !== 0) return null;
+
+                            return (
+                              <text
+                                key={`lbl-${idx}`}
+                                x={p.x}
+                                y={180 - 6}
+                                textAnchor="middle"
+                                className={`text-[8px] font-black tracking-wider ${
+                                  hoveredIndex === idx 
+                                    ? 'fill-indigo-400 font-black' 
+                                    : 'fill-slate-400 font-semibold'
+                                }`}
+                              >
+                                {p.item.date}
+                              </text>
+                            );
+                          })}
+                        </g>
+                      </>
+                    );
+                  })()}
+                </svg>
+
+                {/* Micro instructions / Tooltips */}
+                <div className="absolute top-2 left-2 flex items-center gap-1 opacity-65 pointer-events-none">
+                  <Sparkles className="w-2.5 h-2.5 text-indigo-400 animate-bounce" />
+                  <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">
+                    Hover Canvas to Track
+                  </span>
+                </div>
               </div>
               
-              {/* Monthly breakdown columns */}
-              <div className="h-28 flex items-end justify-between gap-3 pt-3 px-1 relative border-b border-slate-700/20">
-                {/* Horizontal guidelines */}
-                <div className="absolute inset-x-0 top-0 border-t border-dashed border-slate-700/10" />
-                <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-slate-700/10" />
-
-                {chartData.map((item, index) => {
-                  const maxAmount = Math.max(...chartData.map(d => d.amount), 1);
-                  const pct = (item.amount / maxAmount) * 100;
-                  return (
-                    <div key={index} className="flex-1 flex flex-col items-center group relative h-full justify-end">
-                      {/* Interactive Hover Tooltip */}
-                      <div className="absolute bottom-full mb-1 bg-slate-950 text-white text-[9px] font-black px-1.5 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-lg border border-slate-800">
-                        ₹{item.amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                      </div>
-                      
-                      {/* Bar Column representation */}
-                      <div 
-                        className="w-full rounded-t px-0.5 transition-all duration-500 relative overflow-hidden"
-                        style={{ 
-                          height: `${Math.max(pct, 6)}%`,
-                          background: isDark 
-                            ? 'linear-gradient(to top, rgba(99, 102, 241, 0.15), rgba(16, 185, 129, 0.9))' 
-                            : 'linear-gradient(to top, rgba(99, 102, 241, 0.25), rgba(5, 150, 105, 0.95))'
-                        }}
-                      >
-                        <div className="absolute top-0 inset-x-0 h-0.5 bg-emerald-405 shadow-xs animate-pulse" />
-                      </div>
-
-                      {/* Date details below timeline */}
-                      <span className="text-[8.5px] font-bold text-slate-500 mt-2 whitespace-nowrap">
-                        {item.date}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
             </div>
 
           </section>
@@ -986,7 +1436,7 @@ export default function App() {
 
             <div className="space-y-3.5">
               {categories.map((catKey) => {
-                const config = categoryConfig[catKey];
+                const config = getCategoryConfig(catKey);
                 const catAmount = stats.categorySummary[catKey] || 0;
                 const pctOfMax = stats.maximum > 0 ? (catAmount / stats.maximum) * 100 : 0;
                 const pctOfTotal = stats.sumAll > 0 ? (catAmount / stats.sumAll) * 100 : 0;
@@ -1092,7 +1542,7 @@ export default function App() {
             </div>
 
             {/* Detailed filter drawers with small selects */}
-            <div className="grid grid-cols-2 gap-2">
+            <div className="w-full">
               {/* Payment Method Select */}
               <div className="flex flex-col gap-1">
                 <label className="text-[10px] font-semibold text-slate-500 uppercase">Payment Method</label>
@@ -1108,25 +1558,6 @@ export default function App() {
                     {paymentMethods.map(p => (
                       <option key={p} value={p} className={isDark ? "bg-slate-900 text-slate-300" : "bg-white text-slate-800"}>{p}</option>
                     ))}
-                  </select>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-2.5 pointer-events-none" />
-                </div>
-              </div>
-
-              {/* Status Select */}
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-semibold text-slate-500 uppercase">Status</label>
-                <div className="relative">
-                  <select
-                    value={selectedStatus}
-                    onChange={(e) => setSelectedStatus(e.target.value)}
-                    className={`w-full text-xs font-medium border rounded-lg p-2 focus:outline-none focus:border-indigo-505 appearance-none cursor-pointer ${
-                      isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
-                    }`}
-                  >
-                    <option value="All" className={isDark ? "bg-slate-900 text-slate-300" : "bg-white text-slate-800"}>All Statuses</option>
-                    <option value="Paid" className={isDark ? "bg-slate-900 text-slate-300" : "bg-white text-slate-800"}>Paid Only</option>
-                    <option value="Pending" className={isDark ? "bg-slate-900 text-slate-300" : "bg-white text-slate-800"}>Pending Only</option>
                   </select>
                   <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-2.5 pointer-events-none" />
                 </div>
@@ -1150,7 +1581,6 @@ export default function App() {
                       client_email: '',
                       client_phone: '',
                       amount: '',
-                      status: 'Paid',
                       payment_method: 'UPI/Online',
                       description: ''
                     });
@@ -1197,7 +1627,7 @@ export default function App() {
               </div>
             ) : (
               filteredSales.map((sale) => {
-                const config = categoryConfig[sale.category];
+                const config = getCategoryConfig(sale.category);
                 const CatIcon = config.icon;
 
                 return (
@@ -1232,7 +1662,7 @@ export default function App() {
                         <p className={`text-[10px] flex items-center gap-1 ${
                           isDark ? 'text-slate-400' : 'text-slate-500'
                         }`}>
-                          <span>{sale.sale_date}</span>
+                          <span>{formatIndianDate(sale.sale_date)}</span>
                           <span className={isDark ? "text-slate-700" : "text-slate-300"}>•</span>
                           <span>{sale.payment_method}</span>
                         </p>
@@ -1244,19 +1674,9 @@ export default function App() {
                         ₹{sale.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </div>
                       <div>
-                        {sale.status === 'Paid' ? (
-                          <span className={`text-[9px] font-semibold px-2 py-0.5 rounded border ${
-                            isDark ? 'bg-emerald-950/80 text-emerald-400 border-emerald-900' : 'bg-emerald-50 text-emerald-700 border-emerald-200/80'
-                          }`}>Paid</span>
-                        ) : sale.status === 'Pending' ? (
-                          <span className={`text-[9px] font-semibold px-2 py-0.5 rounded border ${
-                            isDark ? 'bg-amber-950/80 text-amber-400 border-amber-900' : 'bg-amber-50 text-amber-700 border-amber-200/80'
-                          }`}>Pending</span>
-                        ) : (
-                          <span className={`text-[9px] font-semibold px-2 py-0.5 rounded border ${
-                            isDark ? 'bg-slate-800 text-slate-400 border-slate-700' : 'bg-slate-100 text-slate-600 border-slate-200/85'
-                          }`}>Refund</span>
-                        )}
+                        <span className={`text-[9px] font-mono font-semibold px-2 py-0.5 rounded border ${
+                          isDark ? 'bg-indigo-950/80 text-indigo-300 border-indigo-900' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                        }`}>{getInvoiceNo(sale)}</span>
                       </div>
                     </div>
                   </div>
@@ -1280,7 +1700,6 @@ export default function App() {
                 client_email: '',
                 client_phone: '',
                 amount: '',
-                status: 'Paid',
                 payment_method: 'UPI/Online',
                 description: ''
               });
@@ -1328,9 +1747,9 @@ export default function App() {
             {/* Content List */}
             <div className="overflow-y-auto p-5 space-y-4 text-xs font-medium">
               <div className={`flex items-center gap-3 p-4 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-850' : 'bg-slate-50 border-slate-150 shadow-3xs'}`}>
-                <div className={`p-2.5 rounded-xl ${categoryConfig[activeSale.category].bg}`}>
+                <div className={`p-2.5 rounded-xl ${getCategoryConfig(activeSale.category).bg}`}>
                   {(() => {
-                    const ConfigIcon = categoryConfig[activeSale.category].icon;
+                    const ConfigIcon = getCategoryConfig(activeSale.category).icon;
                     return <ConfigIcon className="w-5 h-5" />;
                   })()}
                 </div>
@@ -1349,12 +1768,12 @@ export default function App() {
                 
                 <div className="flex justify-between">
                   <span className="text-slate-500">SALES DATE</span>
-                  <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-905'}`}>{activeSale.sale_date}</span>
+                  <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-905'}`}>{formatIndianDate(activeSale.sale_date)}</span>
                 </div>
 
                 <div className="flex justify-between">
-                  <span className="text-slate-500">PAYMENT STATUS</span>
-                  <span>{getStatusBadge(activeSale.status)}</span>
+                  <span className="text-slate-500">INVOICE NUMBER</span>
+                  <span className={`font-mono font-bold ${isDark ? 'text-white' : 'text-slate-905'}`}>{getInvoiceNo(activeSale)}</span>
                 </div>
 
                 <div className="flex justify-between">
@@ -1475,7 +1894,7 @@ export default function App() {
                 <label className="text-[10px] font-black tracking-wider text-slate-500 uppercase">Service Sector</label>
                 <div className="grid grid-cols-2 gap-2">
                   {categories.map((catKey) => {
-                    const config = categoryConfig[catKey];
+                    const config = getCategoryConfig(catKey);
                     const CatIcon = config.icon;
                     const isSelected = formData.category === catKey;
 
@@ -1685,32 +2104,6 @@ export default function App() {
 
                 <hr className={isDark ? "border-slate-850" : "border-slate-150"} />
 
-                {/* Status Options */}
-                <div className="flex items-center justify-between">
-                  <span className="text-[10.5px] font-bold text-slate-400">PAYMENT STATUS</span>
-                  <div className={`flex p-0.5 rounded-lg border ${
-                    isDark ? 'bg-slate-950 border-slate-850' : 'bg-slate-105 border-slate-200'
-                  }`}>
-                    {(['Paid', 'Pending'] as const).map((st) => (
-                      <button
-                        key={st}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, status: st })}
-                        className={`text-[9.5px] font-black tracking-wider px-2.5 py-1.5 rounded-md transition ${
-                          formData.status === st
-                            ? st === 'Paid' ? 'bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20' 
-                              : 'bg-amber-500/10 text-amber-400 font-bold border border-amber-500/20'
-                            : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-slate-500 hover:text-slate-805'
-                        }`}
-                      >
-                        {st}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <hr className={isDark ? "border-slate-850" : "border-slate-150"} />
-
                 {/* Payment Method */}
                 <div className="flex items-center justify-between">
                   <span className="text-[10.5px] font-bold text-slate-400">PAYMENT METHOD</span>
@@ -1789,7 +2182,7 @@ export default function App() {
                 <label className="text-[10px] font-black tracking-wider text-slate-500 uppercase">Service Sector</label>
                 <div className="grid grid-cols-2 gap-2">
                   {categories.map((catKey) => {
-                    const config = categoryConfig[catKey];
+                    const config = getCategoryConfig(catKey);
                     const CatIcon = config.icon;
                     const isSelected = formData.category === catKey;
 
@@ -1997,32 +2390,6 @@ export default function App() {
 
                 <hr className={isDark ? "border-slate-850" : "border-slate-150"} />
 
-                {/* Status Selection */}
-                <div className="flex items-center justify-between">
-                  <span className="text-[10.5px] font-bold text-slate-400">PAYMENT STATUS</span>
-                  <div className={`flex p-0.5 rounded-lg border ${
-                    isDark ? 'bg-slate-950 border-slate-850' : 'bg-slate-105 border-slate-200'
-                  }`}>
-                    {(['Paid', 'Pending'] as const).map((st) => (
-                      <button
-                        key={st}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, status: st })}
-                        className={`text-[9.5px] font-black tracking-wider px-2.5 py-1.5 rounded-md transition ${
-                          formData.status === st
-                            ? st === 'Paid' ? 'bg-emerald-500/10 text-emerald-400 font-bold border border-emerald-500/20' 
-                              : 'bg-amber-500/10 text-amber-400 font-bold border border-amber-500/20'
-                            : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-slate-500 hover:text-slate-805'
-                        }`}
-                      >
-                        {st}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <hr className={isDark ? "border-slate-850" : "border-slate-150"} />
-
                 {/* Payment Method */}
                 <div className="flex items-center justify-between">
                   <span className="text-[10.5px] font-bold text-slate-400">PAYMENT METHOD</span>
@@ -2142,7 +2509,9 @@ export default function App() {
                             await loadData(googleToken);
                             alert('Google Sheet database target updated and reloaded!');
                           } catch (err: any) {
-                            alert('Failed to reload data: ' + err.message);
+                            if (!handleAuthError(err)) {
+                              alert('Failed to reload data: ' + err.message);
+                            }
                           } finally {
                             setLoading(false);
                           }
@@ -2161,6 +2530,46 @@ export default function App() {
                   <p className="text-[9.5px] text-slate-555 leading-relaxed">
                     If missing, we will automatically set up a sub-sheet tab named <b className="text-slate-400">"SalesList"</b>, configure tracking columns, and keep it synchronized.
                   </p>
+                </div>
+              </div>
+
+              {/* Sync Frequency Configuration */}
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-850 space-y-3">
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase text-slate-500 font-bold tracking-wider block">
+                    Auto-Sync Frequency
+                  </label>
+                  <p className="text-[10px] text-slate-400 leading-normal">
+                    Configure how frequently your offline client records should be auto-synced with Google Sheets:
+                  </p>
+                  
+                  <div className="grid grid-cols-4 gap-2 pt-1">
+                    {[
+                      { value: 'manual', label: 'Manual' },
+                      { value: '3', label: '3 min' },
+                      { value: '5', label: '5 min' },
+                      { value: '15', label: '15 min' }
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setSyncFrequency(opt.value as any)}
+                        className={`py-2 px-1 rounded-lg text-center font-bold text-[10px] transition cursor-pointer border ${
+                          syncFrequency === opt.value
+                            ? 'bg-indigo-600 border-indigo-500 text-white shadow-md shadow-indigo-950/50'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-850'
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {lastSynced && (
+                    <p className="text-[10px] text-emerald-400 mt-2 flex items-center gap-1 font-mono">
+                      <span>●</span> Last successful sync: {lastSynced}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -2281,7 +2690,7 @@ export default function App() {
                     type="button"
                     onClick={() => {
                       if (sales.length === 0) return alert('No performance sales recorded yet.');
-                      const headers = ['id', 'sale_date', 'category', 'client_name', 'amount', 'status', 'payment_method', 'description'];
+                      const headers = ['id', 'sale_date', 'category', 'client_name', 'amount', 'invoice_no', 'payment_method', 'description'];
                       const csvRows = [headers.join(',')];
                       
                       sales.forEach(s => {
@@ -2291,7 +2700,7 @@ export default function App() {
                           JSON.stringify(s.category),
                           JSON.stringify(s.client_name),
                           s.amount,
-                          JSON.stringify(s.status),
+                          JSON.stringify(s.invoice_no || ''),
                           JSON.stringify(s.payment_method),
                           JSON.stringify(s.description || '')
                         ];
@@ -2316,11 +2725,27 @@ export default function App() {
                   {/* Seed Restore */}
                   <button
                     type="button"
-                    onClick={() => {
-                      if (window.confirm('Reset local sales state back to system seed defaults? This clears custom local changes!')) {
-                        localStorage.removeItem('tech4geeky_sales_data');
-                        loadData(googleToken);
-                        setIsSettingsOpen(false);
+                    onClick={async () => {
+                      if (googleToken) {
+                        if (window.confirm('Reset Google Sheets spreadsheet back to default database seed? This will overwrite your active spreadsheet values with default sales rows (INV-001 onwards).')) {
+                          try {
+                            setLoading(true);
+                            await seedSheetSales(googleToken, DEFAULT_SEED_SALES);
+                            await loadData(googleToken);
+                            alert('Google Sheet successfully reset to seed defaults!');
+                          } catch (e: any) {
+                            alert('Reset failed: ' + e.message);
+                          } finally {
+                            setLoading(false);
+                            setIsSettingsOpen(false);
+                          }
+                        }
+                      } else {
+                        if (window.confirm('Reset local sales state back to system seed defaults? This clears custom local changes!')) {
+                          localStorage.removeItem('tech4geeky_sales_data');
+                          loadData(googleToken);
+                          setIsSettingsOpen(false);
+                        }
                       }
                     }}
                     className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-[11px] font-semibold text-slate-300 transition flex items-center justify-center gap-1 cursor-pointer"

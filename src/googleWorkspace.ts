@@ -8,7 +8,7 @@ import {
   onAuthStateChanged, 
   User 
 } from 'firebase/auth';
-import type { Sale } from './supabase';
+import type { Sale } from './salesDb';
 import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase
@@ -208,7 +208,7 @@ async function getOrCreateSpreadsheet(token: string): Promise<string> {
 
       // ALWAYS ensure correct headers are written to SalesList!
       // This solves the issue where the sheet is blank or cleared but the tab already exists.
-      const headers = ['Sl No.', 'Client Name', 'Date', 'Category', 'Amount', 'Mode of Transaction', 'PAYMENT STATUS', 'Notes', 'ID'];
+      const headers = ['Sl No.', 'Inv No.', 'Client Name', 'Date', 'Category', 'Amount', 'Mode of Transaction', 'Notes', 'ID'];
       await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/SalesList!A1:I1?valueInputOption=USER_ENTERED`, {
         method: 'PUT',
         headers: {
@@ -254,20 +254,43 @@ async function getOrCreateSpreadsheet(token: string): Promise<string> {
   return targetId;
 }
 
+function parseIndianDate(dateStr: string | undefined): string {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length === 3 && parts[2].length === 4) {
+    // DD-MM-YYYY
+    const [day, month, year] = parts;
+    return `${year}-${month}-${day}`;
+  }
+  return dateStr;
+}
+
+function formatIndianDateLocal(dateStr: string | undefined): string {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
+    // YYYY-MM-DD
+    const [year, month, day] = parts;
+    return `${day}-${month}-${year}`;
+  }
+  return dateStr;
+}
+
 // Map Google Sheets standard array to Sale type
 function rowToSale(row: any[]): Sale | null {
   if (!row || row.length === 0 || !row[0]) return null;
-  if (row[0] === 'Sl No.' || row[1] === 'Client Name') return null;
+  if (row[0] === 'Sl No.' || row[1] === 'Inv No.' || row[2] === 'Client Name') return null;
   
+  const parsedDate = parseIndianDate(row[3]);
   return {
     id: row[8] || row[0],
-    created_at: row[2] ? new Date(row[2]).toISOString() : new Date().toISOString(),
-    sale_date: row[2] || new Date().toISOString().split('T')[0],
-    category: row[3] as any,
-    client_name: row[1] || '',
-    amount: Number(row[4]) || 0,
-    status: row[6] as any,
-    payment_method: row[5] as any,
+    invoice_no: row[1] || '',
+    created_at: parsedDate ? new Date(parsedDate).toISOString() : new Date().toISOString(),
+    sale_date: parsedDate || new Date().toISOString().split('T')[0],
+    category: row[4] as any,
+    client_name: row[2] || '',
+    amount: Number(row[5]) || 0,
+    payment_method: row[6] as any,
     description: row[7] || ''
   };
 }
@@ -276,12 +299,12 @@ function rowToSale(row: any[]): Sale | null {
 function saleToRow(sale: Sale): any[] {
   return [
     '=ROW()-1',
+    '="INV-" & TEXT(ROW()-1, "000")',
     sale.client_name,
-    sale.sale_date,
+    formatIndianDateLocal(sale.sale_date),
     sale.category,
     sale.amount,
     sale.payment_method,
-    sale.status,
     sale.description || '',
     sale.id
   ];
@@ -449,5 +472,30 @@ export async function clearSheetSales(token: string): Promise<boolean> {
     }
   });
   await handleResponse(clearRes, 'Failed to clear Google Sheets values');
+  return true;
+}
+
+// Seed Google Sheets with default database (8 items starting from INV-001)
+export async function seedSheetSales(token: string, defaultSales: Sale[]): Promise<boolean> {
+  const spreadsheetId = await getOrCreateSpreadsheet(token);
+  
+  // First clear any existing data starting from row 2
+  await clearSheetSales(token);
+
+  // Map to rows
+  const rows = defaultSales.map(sale => saleToRow(sale));
+
+  const appendRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A:I:append?valueInputOption=USER_ENTERED`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      values: rows
+    })
+  });
+
+  await handleResponse(appendRes, 'Seeding default database to Google Sheets failed');
   return true;
 }
