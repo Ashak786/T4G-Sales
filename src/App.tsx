@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, FormEvent } from 'react';
+import { useState, useEffect, useMemo, FormEvent, Fragment } from 'react';
 import { 
   DollarSign, 
   Plus, 
@@ -48,8 +48,78 @@ import {
   deleteSheetSale,
   syncLocalToSheets,
   setSpreadsheetId,
-  extractSpreadsheetId
+  extractSpreadsheetId,
+  clearSheetSales
 } from './googleWorkspace';
+
+const getFriendlyErrorMessage = (err: any): string => {
+  if (!err) return 'Unknown error occurred';
+  const msg = err.message || String(err);
+  
+  if (msg.includes('API_DISABLED_ERROR')) {
+    return msg;
+  }
+  
+  if (msg.includes('429') || msg.toLowerCase().includes('quota exceeded') || msg.toLowerCase().includes('quota')) {
+    return 'RATE_LIMIT_ERROR: Google Sheets Rate Limit Exceeded (HTTP 429). Google limits how fast requests can be made. Please wait 1-2 minutes before trying again. Your sales are safely saved locally in the meantime!';
+  }
+  
+  if (msg === 'Failed to fetch' || msg.toLowerCase().includes('failed to fetch')) {
+    return 'OFFLINE_ERROR: Unable to connect to Google Sheets (Network Offline or CORS). The application is securely running in offline-local mode. You can continue adding, updating, and viewing sales; they will be synced when you click Sync!';
+  }
+  
+  return msg;
+};
+
+const renderErrorMessage = (msg: string) => {
+  if (!msg) return null;
+  
+  const isRateLimit = msg.startsWith('RATE_LIMIT_ERROR:');
+  const isOffline = msg.startsWith('OFFLINE_ERROR:');
+  
+  let cleanMsg = msg;
+  if (isRateLimit) {
+    cleanMsg = msg.replace('RATE_LIMIT_ERROR:', '').trim();
+  } else if (isOffline) {
+    cleanMsg = msg.replace('OFFLINE_ERROR:', '').trim();
+  } else {
+    cleanMsg = msg.replace('API_DISABLED_ERROR:', '').trim();
+  }
+
+  const parts = cleanMsg.split(/(https?:\/\/[^\s]+)/g);
+  return (
+    <div className="flex flex-col gap-1 w-full text-left">
+      {isRateLimit && (
+        <span className="font-bold text-amber-500 dark:text-amber-400 text-xs">Rate Limit Reached (HTTP 429)</span>
+      )}
+      {isOffline && (
+        <span className="font-bold text-sky-500 dark:text-sky-400 text-xs">Offline Local Mode Active</span>
+      )}
+      <span className="leading-relaxed">
+        {parts.map((part, index) => {
+          if (part.match(/^https?:\/\//)) {
+            const cleanUrl = part.replace(/[.,;)]+$/, '');
+            const trailing = part.slice(cleanUrl.length);
+            return (
+              <Fragment key={index}>
+                <a 
+                  href={cleanUrl} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="underline font-bold text-rose-600 hover:text-rose-800 dark:text-amber-400 dark:hover:text-amber-300 break-all"
+                >
+                  {cleanUrl}
+                </a>
+                {trailing}
+              </Fragment>
+            );
+          }
+          return <span key={index}>{part}</span>;
+        })}
+      </span>
+    </div>
+  );
+};
 
 export default function App() {
   // Theme State
@@ -234,20 +304,25 @@ export default function App() {
       }
     } catch (err: any) {
       console.error(err);
-      const isAuthErr = err.message?.includes('401') || 
+      const isApiDisabled = err.message?.includes('API_DISABLED_ERROR');
+      const isAuthErr = !isApiDisabled && (
+                        err.message?.includes('401') || 
                         err.message?.includes('403') || 
                         err.message?.toLowerCase().includes('access denied') || 
                         err.message?.toLowerCase().includes('unauthorized') ||
                         err.message?.toLowerCase().includes('permissions') ||
                         err.message?.toLowerCase().includes('credentials') ||
                         err.message?.toLowerCase().includes('sign-in') ||
-                        err.message?.toLowerCase().includes('re-sign');
-      if (isAuthErr) {
+                        err.message?.toLowerCase().includes('re-sign')
+                      );
+      if (isApiDisabled) {
+        setErrorMessage(getFriendlyErrorMessage(err));
+      } else if (isAuthErr) {
         setUser(null);
         setGoogleToken(null);
         setErrorMessage('Google Connection Expired or Lacks Scopes: Please sign out and sign in again to grant permissions.');
       } else {
-        setErrorMessage('Google Sheets connection error: ' + (err.message || 'Check connection.'));
+        setErrorMessage(getFriendlyErrorMessage(err));
       }
       setSales(getLocalSales());
       setDbSource('local');
@@ -349,9 +424,30 @@ export default function App() {
         await loadData(googleToken);
       }
     } catch (err: any) {
-      setErrorMessage('Sync error: ' + (err.message || err));
+      setErrorMessage(getFriendlyErrorMessage(err));
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleClearSheetsData = async () => {
+    if (!googleToken) {
+      alert('Please connect your Google Account first!');
+      return;
+    }
+    if (window.confirm('Are you absolutely sure you want to clear all sales data in your Google Sheet? This cannot be undone on the spreadsheet!')) {
+      setLoading(true);
+      try {
+        await clearSheetSales(googleToken);
+        localStorage.setItem('tech4geeky_sales_data', JSON.stringify([]));
+        await loadData(googleToken);
+        alert('Google Sheets table successfully cleared!');
+      } catch (err: any) {
+        setErrorMessage(getFriendlyErrorMessage(err));
+        alert('Failed to clear sheet data: ' + err.message);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -383,6 +479,7 @@ export default function App() {
         const local = getLocalSales();
         local.unshift(created);
         saveLocalSales(local);
+        setSales(local);
       } else {
         const newId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
         const newCreated = new Date().toISOString();
@@ -394,10 +491,8 @@ export default function App() {
         const local = getLocalSales();
         local.unshift(fullSale);
         saveLocalSales(local);
+        setSales(local);
       }
-      
-      // Reload from local storage or cloud
-      await loadData(googleToken);
       
       // Reset Form State
       setFormData({
@@ -413,7 +508,7 @@ export default function App() {
       });
       setIsAddOpen(false);
     } catch (err: any) {
-      setErrorMessage('Failed to capture sale: ' + err.message);
+      setErrorMessage(getFriendlyErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -471,6 +566,7 @@ export default function App() {
           local.push(updatedItem);
         }
         saveLocalSales(local);
+        setSales(local);
       } else {
         const local = getLocalSales();
         const idx = local.findIndex(s => s.id === updatedItem.id);
@@ -478,13 +574,13 @@ export default function App() {
           local[idx] = updatedItem;
         }
         saveLocalSales(local);
+        setSales(local);
       }
 
-      await loadData(googleToken);
       setIsEditOpen(false);
       setActiveSale(null);
     } catch (err: any) {
-      setErrorMessage('Update failed: ' + err.message);
+      setErrorMessage(getFriendlyErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -492,25 +588,27 @@ export default function App() {
 
   // Handle Delete
   const handleDeleteSale = async (id: string) => {
-    setLoading(true);
-    try {
-      if (googleToken) {
-        await deleteSheetSale(googleToken, id);
-      }
-      
-      // Update local storage
-      const local = getLocalSales();
-      const filtered = local.filter(s => s.id !== id);
-      saveLocalSales(filtered);
+    // 1. Optimistically update local storage and component state immediately
+    const local = getLocalSales();
+    const filtered = local.filter(s => s.id !== id);
+    saveLocalSales(filtered);
+    setSales(filtered);
 
-      await loadData(googleToken);
-      setIsDetailsOpen(false);
-      setIsConfirmingDelete(false);
-      setActiveSale(null);
-    } catch (err: any) {
-      setErrorMessage('Deletion failed: ' + err.message);
-    } finally {
-      setLoading(false);
+    // 2. Immediately close details panel and modal states so UI is responsive
+    setIsDetailsOpen(false);
+    setIsConfirmingDelete(false);
+    setActiveSale(null);
+
+    // 3. Sync deletion to Google Sheets in background if connected
+    if (googleToken) {
+      try {
+        await deleteSheetSale(googleToken, id);
+      } catch (err: any) {
+        console.error('Background Sheet deletion error:', err);
+        setErrorMessage('Failed to sync deletion to Google Sheets: ' + getFriendlyErrorMessage(err));
+        // Reload data to ensure state is in sync with backend if error occurs
+        await loadData(googleToken);
+      }
     }
   };
 
@@ -765,11 +863,11 @@ export default function App() {
           </div>
 
           {errorMessage && (
-            <div className={`mt-2.5 p-2 ${
-              isDark ? 'bg-rose-950/60 text-rose-300 border-rose-800/50' : 'bg-rose-50 text-rose-805 border-rose-200/80'
+            <div className={`mt-2.5 p-2.5 ${
+              isDark ? 'bg-rose-950/60 text-rose-300 border-rose-800/50' : 'bg-rose-50 text-rose-800 border-rose-200/80'
             } text-[11px] rounded-lg border flex gap-1.5 items-start`}>
               <Info className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
-              <span className="line-clamp-2">{errorMessage}</span>
+              <span className="break-words leading-normal w-full">{renderErrorMessage(errorMessage)}</span>
             </div>
           )}
         </header>
@@ -2058,7 +2156,7 @@ export default function App() {
                             await loadData(result.accessToken);
                           }
                         } catch (err: any) {
-                          setErrorMessage('Sign-in failed: ' + err.message);
+                          setErrorMessage(getFriendlyErrorMessage(err));
                         } finally {
                           setLoading(false);
                         }
@@ -2132,6 +2230,15 @@ export default function App() {
                           <span>Synergize / Push Offline Work</span>
                         </>
                       )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleClearSheetsData}
+                      className="w-full mt-2 py-2 bg-rose-950/40 hover:bg-rose-900/40 border border-rose-900/50 text-rose-300 hover:text-rose-200 rounded-lg text-xs font-bold uppercase tracking-wider transition flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Clear Sheets Table</span>
                     </button>
                   </div>
                 )}
