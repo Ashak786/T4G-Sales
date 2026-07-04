@@ -495,3 +495,258 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   const fileName = `Invoice_${invoiceNo}_${sale.client_name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
   doc.save(fileName);
 }
+
+export async function generateMonthlySummaryPDF(sales: Sale[]): Promise<void> {
+  const doc = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4'
+  });
+
+  const navyColor = [18, 34, 64];
+  const borderGrey = [180, 180, 180];
+  const lightGrayBg = [248, 250, 252];
+
+  // Calculate previous month dynamically based on current date
+  const now = new Date();
+  const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevMonthName = prevMonthDate.toLocaleString('en-US', { month: 'long' });
+  const prevYear = prevMonthDate.getFullYear();
+  const prevMonthLabel = `${prevMonthName} ${prevYear}`;
+  const prevMonthYMD = `${prevYear}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
+
+  // Filter previous month sales
+  const prevMonthSales = sales.filter(s => {
+    if (!s.sale_date) return false;
+    return s.sale_date.startsWith(prevMonthYMD);
+  });
+
+  // Sort sales chronologically
+  prevMonthSales.sort((a, b) => new Date(a.sale_date).getTime() - new Date(b.sale_date).getTime());
+
+  // Compute metrics
+  const totalRevenue = prevMonthSales.reduce((sum, s) => sum + s.amount, 0);
+  const totalCount = prevMonthSales.length;
+  const averageValue = totalCount > 0 ? totalRevenue / totalCount : 0;
+
+  // Category breakdown
+  const categories = [
+    'Video editing',
+    'Web Site development',
+    'Govt. Service (Appl.)',
+    'PC Repair',
+    'Graphic Designing'
+  ];
+  
+  const categoryStats = categories.map(cat => {
+    const catSales = prevMonthSales.filter(s => s.category === cat);
+    const rev = catSales.reduce((sum, s) => sum + s.amount, 0);
+    return {
+      name: cat,
+      count: catSales.length,
+      revenue: rev,
+      pct: totalRevenue > 0 ? (rev / totalRevenue) * 100 : 0
+    };
+  });
+
+  // --- 1. BRANDING HEADER BANNER ---
+  doc.setFillColor(navyColor[0], navyColor[1], navyColor[2]);
+  doc.rect(15, 15, 180, 32, 'F');
+
+  // Fetch/generate logo base64
+  const logoUrl = 'https://drive.google.com/open?id=1kVnKI3jYuJO4QkmBtig52cargj1MGR92&usp=drive_fs';
+  const logoBase64 = await fetchLogoBase64(logoUrl);
+  if (logoBase64) {
+    const format = logoBase64.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
+    doc.addImage(logoBase64, format, 25, 18, 68, 17);
+  }
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.text('"NERD ABOUT TECH"', 59, 41.5, { align: 'center' });
+
+  doc.setFont('Helvetica', 'normal');
+  doc.setFontSize(9.5);
+  doc.text('Email ID: tgeeky96@gmail.com', 190, 29, { align: 'right' });
+
+  // --- 2. REPORT TITLE ---
+  doc.setTextColor(0, 0, 0);
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(13);
+  doc.text('MONTHLY SALES PERFORMANCE REPORT', 105, 55, { align: 'center' });
+
+  doc.setFontSize(10);
+  doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(80, 80, 80);
+  doc.text(`Reporting Period: ${prevMonthLabel.toUpperCase()}`, 105, 61, { align: 'center' });
+  doc.text(`Generated On: ${formatIndianDate(now.toISOString().split('T')[0])}`, 105, 66, { align: 'center' });
+
+  // --- 3. METRIC SUMMARY CARDS ---
+  let y = 73;
+
+  // Box border
+  doc.setDrawColor(borderGrey[0], borderGrey[1], borderGrey[2]);
+  doc.setLineWidth(0.35);
+  doc.setFillColor(lightGrayBg[0], lightGrayBg[1], lightGrayBg[2]);
+  doc.rect(15, y, 180, 24, 'FD');
+
+  // Metric 1: Total Revenue
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(100, 100, 100);
+  doc.text('TOTAL REVENUE', 20, y + 7);
+  doc.setFontSize(13);
+  doc.setTextColor(navyColor[0], navyColor[1], navyColor[2]);
+  doc.text(formatRupees(totalRevenue), 20, y + 16);
+
+  // Metric 2: Total Invoices
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(100, 100, 100);
+  doc.text('TOTAL INVOICES', 85, y + 7);
+  doc.setFontSize(13);
+  doc.setTextColor(navyColor[0], navyColor[1], navyColor[2]);
+  doc.text(`${totalCount} Sales`, 85, y + 16);
+
+  // Metric 3: Average Order Value (AOV)
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(100, 100, 100);
+  doc.text('AVG ORDER VALUE', 145, y + 7);
+  doc.setFontSize(13);
+  doc.setTextColor(navyColor[0], navyColor[1], navyColor[2]);
+  doc.text(formatRupees(averageValue), 145, y + 16);
+
+  // --- 4. CATEGORY BREAKDOWN TABLE ---
+  y += 33;
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(navyColor[0], navyColor[1], navyColor[2]);
+  doc.text('I. SERVICE CATEGORY BREAKDOWN', 15, y);
+
+  y += 4;
+  // Table Header
+  doc.setFillColor(navyColor[0], navyColor[1], navyColor[2]);
+  doc.rect(15, y, 180, 7.5, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text('Category Name', 18, y + 5);
+  doc.text('Sales Count', 100, y + 5, { align: 'right' });
+  doc.text('Total Revenue', 145, y + 5, { align: 'right' });
+  doc.text('Contribution %', 190, y + 5, { align: 'right' });
+
+  y += 7.5;
+  categoryStats.forEach((cat, idx) => {
+    // Alternating background
+    if (idx % 2 === 0) {
+      doc.setFillColor(250, 250, 250);
+    } else {
+      doc.setFillColor(240, 243, 248);
+    }
+    doc.rect(15, y, 180, 7.5, 'F');
+    doc.setDrawColor(220, 225, 230);
+    doc.line(15, y + 7.5, 195, y + 7.5);
+
+    doc.setTextColor(40, 40, 40);
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.text(cat.name, 18, y + 5);
+    doc.text(String(cat.count), 100, y + 5, { align: 'right' });
+    doc.text(formatRupees(cat.revenue), 145, y + 5, { align: 'right' });
+    doc.text(`${cat.pct.toFixed(1)}%`, 190, y + 5, { align: 'right' });
+
+    y += 7.5;
+  });
+
+  // --- 5. DETAILED INVOICE LOGS ---
+  y += 8;
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(navyColor[0], navyColor[1], navyColor[2]);
+  doc.text('II. ITEMIZED SALES LOG', 15, y);
+
+  y += 4;
+  // Table Header
+  doc.setFillColor(navyColor[0], navyColor[1], navyColor[2]);
+  doc.rect(15, y, 180, 7.5, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text('Date', 18, y + 5);
+  doc.text('Client Name', 43, y + 5);
+  doc.text('Category', 105, y + 5);
+  doc.text('Method', 153, y + 5);
+  doc.text('Amount', 190, y + 5, { align: 'right' });
+
+  y += 7.5;
+
+  if (prevMonthSales.length === 0) {
+    doc.setFillColor(255, 255, 255);
+    doc.rect(15, y, 180, 10, 'F');
+    doc.setTextColor(120, 120, 120);
+    doc.setFont('Helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.text('No transaction records found for this period.', 105, y + 6.5, { align: 'center' });
+    y += 10;
+  } else {
+    prevMonthSales.forEach((s, idx) => {
+      // Check page overflow
+      if (y > 265) {
+        doc.addPage();
+        y = 20;
+        // Draw top border/line
+        doc.setDrawColor(borderGrey[0], borderGrey[1], borderGrey[2]);
+        doc.line(15, y, 195, y);
+        y += 5;
+      }
+
+      if (idx % 2 === 0) {
+        doc.setFillColor(255, 255, 255);
+      } else {
+        doc.setFillColor(248, 250, 252);
+      }
+      doc.rect(15, y, 180, 7.5, 'F');
+      doc.setDrawColor(235, 238, 242);
+      doc.line(15, y + 7.5, 195, y + 7.5);
+
+      doc.setTextColor(50, 50, 50);
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.text(formatIndianDate(s.sale_date), 18, y + 5);
+      doc.text(s.client_name.length > 28 ? s.client_name.slice(0, 25) + '...' : s.client_name, 43, y + 5);
+      doc.text(s.category, 105, y + 5);
+      doc.text(s.payment_method, 153, y + 5);
+      doc.setFont('Helvetica', 'bold');
+      doc.text(formatRupees(s.amount), 190, y + 5, { align: 'right' });
+
+      y += 7.5;
+    });
+  }
+
+  // Draw final footer boundary
+  if (y > 270) {
+    doc.addPage();
+    y = 20;
+  }
+  
+  const footerY = 262;
+  doc.setDrawColor(borderGrey[0], borderGrey[1], borderGrey[2]);
+  doc.line(15, footerY, 195, footerY);
+
+  doc.setFontSize(7.5);
+  doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(110, 110, 110);
+  doc.text('Tech4Geeky Internal Performance Summary Report. Confidential & Proprietary.', 15, footerY + 5);
+  
+  doc.setFont('Helvetica', 'bold');
+  doc.setTextColor(navyColor[0], navyColor[1], navyColor[2]);
+  doc.text('Tech4Geeky Systems Representative', 195, footerY + 5, { align: 'right' });
+
+  // Save PDF
+  const reportFileName = `Tech4Geeky_Summary_${prevMonthLabel.replace(/\s+/g, '_')}.pdf`;
+  doc.save(reportFileName);
+}

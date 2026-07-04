@@ -34,7 +34,8 @@ import {
   Moon,
   ArrowUpRight,
   ArrowDownRight,
-  Sparkles
+  Sparkles,
+  Download
 } from 'lucide-react';
 import { 
   Sale, 
@@ -42,7 +43,7 @@ import {
   saveLocalSales,
   DEFAULT_SEED_SALES
 } from './salesDb';
-import { generateInvoicePDF, formatIndianDate } from './utils/pdfGenerator';
+import { generateInvoicePDF, formatIndianDate, generateMonthlySummaryPDF } from './utils/pdfGenerator';
 import {
   initAuth,
   googleSignIn,
@@ -980,7 +981,23 @@ export default function App() {
             
             {/* Main Financial Metrics Carousel / Grid */}
           <section className="space-y-3">
-            <h2 className={`text-xs font-bold tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-500'} uppercase`}>Sales Performance Summary</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className={`text-xs font-bold tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-500'} uppercase`}>Sales Performance Summary</h2>
+              <button
+                type="button"
+                id="btn-download-monthly-summary"
+                onClick={() => generateMonthlySummaryPDF(sales)}
+                className={`text-[10.5px] font-black tracking-wide px-3 py-1 rounded-xl border transition-all duration-200 flex items-center gap-1.5 cursor-pointer select-none active:scale-95 ${
+                  isDark 
+                    ? 'bg-slate-950/60 border-slate-800 text-indigo-400 hover:text-indigo-300 hover:bg-slate-800' 
+                    : 'bg-white border-slate-200/80 text-indigo-600 hover:text-indigo-700 hover:bg-slate-50 shadow-2xs'
+                }`}
+                title="Download report summarizing total revenue, count, and category breakdown for the previous month."
+              >
+                <Download className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Monthly Summary</span>
+              </button>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               
               {/* Paid Sales Card */}
