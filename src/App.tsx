@@ -46,7 +46,9 @@ import {
   insertSheetSale,
   updateSheetSale,
   deleteSheetSale,
-  syncLocalToSheets
+  syncLocalToSheets,
+  setSpreadsheetId,
+  extractSpreadsheetId
 } from './googleWorkspace';
 
 export default function App() {
@@ -77,6 +79,9 @@ export default function App() {
   // Google Connection / Auth state
   const [user, setUser] = useState<any>(null);
   const [googleToken, setGoogleToken] = useState<string | null>(null);
+  const [sheetInput, setSheetInput] = useState<string>(() => {
+    return localStorage.getItem('tech4geeky_google_sheet_id') || '1yE9_IElbygv0tMCTLS7en-HsdxigwQKk';
+  });
   
   // Search & Filters State
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -229,7 +234,21 @@ export default function App() {
       }
     } catch (err: any) {
       console.error(err);
-      setErrorMessage('Google Sheets connection error: ' + (err.message || 'Check connection.'));
+      const isAuthErr = err.message?.includes('401') || 
+                        err.message?.includes('403') || 
+                        err.message?.toLowerCase().includes('access denied') || 
+                        err.message?.toLowerCase().includes('unauthorized') ||
+                        err.message?.toLowerCase().includes('permissions') ||
+                        err.message?.toLowerCase().includes('credentials') ||
+                        err.message?.toLowerCase().includes('sign-in') ||
+                        err.message?.toLowerCase().includes('re-sign');
+      if (isAuthErr) {
+        setUser(null);
+        setGoogleToken(null);
+        setErrorMessage('Google Connection Expired or Lacks Scopes: Please sign out and sign in again to grant permissions.');
+      } else {
+        setErrorMessage('Google Sheets connection error: ' + (err.message || 'Check connection.'));
+      }
       setSales(getLocalSales());
       setDbSource('local');
     } finally {
@@ -653,7 +672,7 @@ export default function App() {
             <div className="flex items-center gap-2.5">
               <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm">
                 <img 
-                  src="https://gtahsrcnhhqlxyfnsnor.supabase.co/storage/v1/object/public/Logo/T4G_Logo.png" 
+                  src="https://lh3.googleusercontent.com/d/1kVnKI3jYuJO4QkmBtig52cargj1MGR92" 
                   alt="Tech4Geeky Logo" 
                   className="w-7 h-7 object-contain"
                   referrerPolicy="no-referrer"
@@ -1935,6 +1954,58 @@ export default function App() {
                 </div>
               </div>
 
+              {/* Target Spreadsheet Configuration */}
+              <div className="p-4 bg-slate-950 rounded-xl border border-slate-850 space-y-3">
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase text-slate-500 font-bold tracking-wider block">
+                    Target Google Sheet ID / Link
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={sheetInput}
+                      onChange={(e) => setSheetInput(e.target.value)}
+                      placeholder="Paste sheet URL or spreadsheet ID"
+                      className="flex-1 bg-slate-900 border border-slate-800 text-xs px-3 py-2 rounded-lg text-slate-300 focus:outline-none focus:border-indigo-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!sheetInput.trim()) {
+                          alert('Please enter a valid Google Sheet URL or ID.');
+                          return;
+                        }
+                        const updatedId = setSpreadsheetId(sheetInput);
+                        setSheetInput(updatedId);
+                        
+                        if (googleToken) {
+                          setLoading(true);
+                          try {
+                            await loadData(googleToken);
+                            alert('Google Sheet database target updated and reloaded!');
+                          } catch (err: any) {
+                            alert('Failed to reload data: ' + err.message);
+                          } finally {
+                            setLoading(false);
+                          }
+                        } else {
+                          alert('Sheet configuration saved! Sign in to Google Workspace to read and write records.');
+                        }
+                      }}
+                      className="px-3 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white font-bold transition flex items-center justify-center cursor-pointer text-[11px]"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-normal">
+                    Active Sheet ID: <code className="text-cyan-400 bg-slate-900 px-1.5 py-0.5 rounded font-mono break-all">{localStorage.getItem('tech4geeky_google_sheet_id') || '1yE9_IElbygv0tMCTLS7en-HsdxigwQKk'}</code>
+                  </p>
+                  <p className="text-[9.5px] text-slate-555 leading-relaxed">
+                    If missing, we will automatically set up a sub-sheet tab named <b className="text-slate-400">"SalesList"</b>, configure tracking columns, and keep it synchronized.
+                  </p>
+                </div>
+              </div>
+
               {/* Login / Actions Controls */}
               <div className="p-4 bg-slate-950 rounded-xl border border-slate-850 space-y-3.5">
                 {!googleToken ? (
@@ -1965,7 +2036,7 @@ export default function App() {
                       Sign in with Google Account
                     </button>
                     <p className="text-[9px] text-slate-500 mt-1.5">
-                      This will automatically find or create a spreadsheet named "Tech4Geeky Sales Tracker" in your Google Drive.
+                      This will connect to your active sheet database in Google Drive.
                     </p>
                   </div>
                 ) : (

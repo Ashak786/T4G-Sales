@@ -122,74 +122,159 @@ export const getAccessToken = async (): Promise<string | null> => {
 // Spreadsheet Management API Client
 
 // Find or Create spreadsheet
-async function getOrCreateSpreadsheet(token: string): Promise<string> {
-  const cached = localStorage.getItem(SPREADSHEET_ID_CACHE_KEY);
-  if (cached) return cached;
+export function extractSpreadsheetId(input: string): string {
+  const match = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (match) return match[1];
+  return input.trim();
+}
 
-  // Search for an existing of name "Tech4Geeky Sales Tracker"
-  const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name%3D'Tech4Geeky+Sales+Tracker'+and+mimeType%3D'application/vnd.google-apps.spreadsheet'+and+trashed%3Dfalse&fields=files(id,name)`;
+export function setSpreadsheetId(idOrUrl: string) {
+  const id = extractSpreadsheetId(idOrUrl);
+  localStorage.setItem(SPREADSHEET_ID_CACHE_KEY, id);
+  return id;
+}
+
+// Helper to handle API responses and clear stale tokens on 401/403
+async function handleResponse(response: Response, defaultError: string): Promise<any> {
+  if (response.status === 401 || response.status === 403) {
+    localStorage.removeItem(GOOGLE_ACCESS_TOKEN_KEY);
+    cachedAccessToken = null;
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(`Google Sheets access denied (HTTP ${response.status}): ${errData.error?.message || 'Unauthorized or insufficient scopes'}. Please re-sign in to grant Sheets & Drive permissions.`);
+  }
+  if (!response.ok) {
+    const errData = await response.json().catch(() => ({}));
+    throw new Error(`${defaultError} (HTTP ${response.status}): ${errData.error?.message || response.statusText}`);
+  }
+  return response.json();
+}
+
+async function getOrCreateSpreadsheet(token: string): Promise<string> {
+  let cached = localStorage.getItem(SPREADSHEET_ID_CACHE_KEY);
+  if (!cached) {
+    // Default to the user's requested spreadsheet
+    cached = '1yE9_IElbygv0tMCTLS7en-HsdxigwQKk';
+    localStorage.setItem(SPREADSHEET_ID_CACHE_KEY, cached);
+  }
+
+  // Verify sheet existence and ensure 'SalesList' page is configured
   try {
-    const searchRes = await fetch(searchUrl, {
+    const checkRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${cached}`, {
       headers: { Authorization: `Bearer ${token}` }
     });
-    const searchData = await searchRes.json();
-    if (searchData.files && searchData.files.length > 0) {
-      const sheetId = searchData.files[0].id;
-      localStorage.setItem(SPREADSHEET_ID_CACHE_KEY, sheetId);
-      return sheetId;
-    }
-  } catch (err) {
-    console.error('Failed to search Drive files:', err);
-  }
+    
+    if (checkRes.ok) {
+      const data = await checkRes.json();
+      const sheetTitles = data.sheets?.map((s: any) => s.properties?.title) || [];
+      if (!sheetTitles.includes('SalesList')) {
+        // Create the SalesList sheet inside this spreadsheet
+        const updateRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${cached}:batchUpdate`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            requests: [
+              {
+                addSheet: {
+                  properties: {
+                    title: 'SalesList'
+                  }
+                }
+              }
+            ]
+          })
+        });
 
-  // Create new Spreadsheet
-  try {
-    const createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        properties: {
-          title: 'Tech4Geeky Sales Tracker'
-        },
-        sheets: [
-          {
+        if (updateRes.ok) {
+          // Initialize headers in SalesList
+          await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${cached}/values/SalesList!A1:K1?valueInputOption=USER_ENTERED`, {
+            method: 'PUT',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              values: [
+                ['ID', 'Created At', 'Sale Date', 'Category', 'Client Name', 'Client Email', 'Client Phone', 'Amount', 'Status', 'Payment Method', 'Description']
+              ]
+            })
+          });
+        } else {
+          const errData = await updateRes.json().catch(() => ({}));
+          throw new Error(`Failed to create 'SalesList' tab: ${errData.error?.message || updateRes.statusText}`);
+        }
+      }
+    } else {
+      if (checkRes.status === 401 || checkRes.status === 403) {
+        localStorage.removeItem(GOOGLE_ACCESS_TOKEN_KEY);
+        cachedAccessToken = null;
+        const errData = await checkRes.json().catch(() => ({}));
+        throw new Error(`Google Sheets access denied (HTTP ${checkRes.status}): ${errData.error?.message || 'Unauthorized or insufficient scopes'}. Please re-sign in to grant Sheets & Drive permissions.`);
+      }
+
+      console.warn(`Spreadsheet ID ${cached} could not be loaded directly (${checkRes.status}), searching or creating standard "Tech4Geeky Sales Tracker" file...`);
+      // Search for an existing file
+      const searchUrl = `https://www.googleapis.com/drive/v3/files?q=name%3D'Tech4Geeky+Sales+Tracker'+and+mimeType%3D'application/vnd.google-apps.spreadsheet'+and+trashed%3Dfalse&fields=files(id,name)`;
+      const searchRes = await fetch(searchUrl, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      const searchData = await handleResponse(searchRes, 'Google Drive search failed');
+      if (searchData.files && searchData.files.length > 0) {
+        cached = searchData.files[0].id;
+        localStorage.setItem(SPREADSHEET_ID_CACHE_KEY, cached);
+      } else {
+        // Create new Spreadsheet
+        const createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
             properties: {
-              title: 'SalesList'
-            }
-          }
-        ]
-      })
-    });
-    const created = await createRes.json();
-    if (!created.spreadsheetId) {
-      throw new Error('Failed to create new Google Sheet.');
+              title: 'Tech4Geeky Sales Tracker'
+            },
+            sheets: [
+              {
+                properties: {
+                  title: 'SalesList'
+                }
+              }
+            ]
+          })
+        });
+
+        const created = await handleResponse(createRes, 'Failed to create new Google Sheet');
+
+        cached = created.spreadsheetId;
+        localStorage.setItem(SPREADSHEET_ID_CACHE_KEY, cached);
+
+        // Insert headers
+        const headerRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${cached}/values/SalesList!A1:K1?valueInputOption=USER_ENTERED`, {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            values: [
+              ['ID', 'Created At', 'Sale Date', 'Category', 'Client Name', 'Client Email', 'Client Phone', 'Amount', 'Status', 'Payment Method', 'Description']
+            ]
+          })
+        });
+
+        await handleResponse(headerRes, 'Failed to initialize headers');
+      }
     }
-
-    const sheetId = created.spreadsheetId;
-
-    // Insert headers
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/SalesList!A1:K1:append?valueInputOption=USER_ENTERED`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        values: [
-          ['ID', 'Created At', 'Sale Date', 'Category', 'Client Name', 'Client Email', 'Client Phone', 'Amount', 'Status', 'Payment Method', 'Description']
-        ]
-      })
-    });
-
-    localStorage.setItem(SPREADSHEET_ID_CACHE_KEY, sheetId);
-    return sheetId;
   } catch (err: any) {
-    console.error('Spreadsheet create error:', err);
-    throw new Error('Could not initialize Google Sheet database: ' + err.message);
+    console.error('Spreadsheet resolution error:', err);
+    throw err; // bubble up so the user gets a helpful, readable warning in the UI
   }
+
+  return cached;
 }
 
 // Map Google Sheets standard array to Sale type
@@ -233,7 +318,7 @@ export async function fetchSheetsSales(token: string): Promise<Sale[]> {
     headers: { Authorization: `Bearer ${token}` }
   });
   
-  const data = await response.json();
+  const data = await handleResponse(response, 'Failed to fetch sales from Google Sheets');
   if (!data.values) return [];
   
   const sales: Sale[] = [];
@@ -268,9 +353,7 @@ export async function insertSheetSale(token: string, sale: Omit<Sale, 'id' | 'cr
     })
   });
 
-  if (!appendRes.ok) {
-    throw new Error('Google Sheets write failed.');
-  }
+  await handleResponse(appendRes, 'Google Sheets write failed');
 
   return fullSale;
 }
@@ -282,7 +365,7 @@ export async function updateSheetSale(token: string, sale: Sale): Promise<Sale> 
   const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A1:A10000`, {
     headers: { Authorization: `Bearer ${token}` }
   });
-  const data = await response.json();
+  const data = await handleResponse(response, 'Failed to read spreadsheet structure for update');
   if (!data.values) throw new Error('Document structure is empty.');
   
   let rowIndex = -1;
@@ -310,9 +393,7 @@ export async function updateSheetSale(token: string, sale: Sale): Promise<Sale> 
     })
   });
 
-  if (!putRes.ok) {
-    throw new Error('Failed to update Google Sheets cell record.');
-  }
+  await handleResponse(putRes, 'Failed to update Google Sheets cell record');
 
   return sale;
 }
@@ -324,7 +405,7 @@ export async function deleteSheetSale(token: string, id: string): Promise<boolea
   const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A1:A10000`, {
     headers: { Authorization: `Bearer ${token}` }
   });
-  const data = await response.json();
+  const data = await handleResponse(response, 'Failed to read spreadsheet structure for deletion');
   if (!data.values) return false;
 
   let rowIndex = -1;
@@ -345,7 +426,8 @@ export async function deleteSheetSale(token: string, id: string): Promise<boolea
     }
   });
 
-  return clearRes.ok;
+  await handleResponse(clearRes, 'Failed to clear Google Sheets cell record');
+  return true;
 }
 
 // Bulk Sync Local Offline entries to Google Sheets
@@ -374,9 +456,7 @@ export async function syncLocalToSheets(token: string, localSales: Sale[]): Prom
       })
     });
 
-    if (!appendRes.ok) {
-      throw new Error('Sync append to sheet failed.');
-    }
+    await handleResponse(appendRes, 'Sync append to sheet failed');
 
     return { syncedCount: toInsert.length };
   } catch (err: any) {
