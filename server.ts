@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createServer as createViteServer } from "vite";
 
 // Helper function to manually follow redirects and preserve method/body for POST requests.
@@ -84,6 +85,51 @@ async function startServer() {
   // API routes FIRST
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
+  });
+
+  // State cache for monthly summary PDF
+  let cachedPdf: { fileName: string; base64: string } | null = null;
+  const CACHE_FILE_PATH = path.join("/tmp", "tech4geeky_pdf_cache.json");
+
+  // On startup, try to load from /tmp
+  try {
+    if (fs.existsSync(CACHE_FILE_PATH)) {
+      const rawData = fs.readFileSync(CACHE_FILE_PATH, "utf8");
+      cachedPdf = JSON.parse(rawData);
+      console.log("[Server Cache] Restored cached PDF from disk:", cachedPdf?.fileName);
+    }
+  } catch (err) {
+    console.warn("[Server Cache] Failed to load cache from disk:", err);
+  }
+
+  // Upload/update the cached PDF from the browser client
+  app.post("/api/monthly-summary/cache", (req, res) => {
+    const { fileName, base64 } = req.body;
+    if (!fileName || !base64) {
+      return res.status(400).json({ error: "Missing fileName or base64 data" });
+    }
+    cachedPdf = { fileName, base64 };
+    try {
+      fs.writeFileSync(CACHE_FILE_PATH, JSON.stringify(cachedPdf), "utf8");
+      console.log("[Server Cache] PDF cache successfully written to disk:", fileName);
+    } catch (err) {
+      console.warn("[Server Cache] Failed to write cache to disk:", err);
+    }
+    return res.json({ success: true, fileName });
+  });
+
+  // Serve the downloaded monthly-summary PDF directly (used for automations like Claude/make.com/etc)
+  app.get("/api/monthly-summary.pdf", (req, res) => {
+    if (!cachedPdf) {
+      return res.status(404).send(
+        "No monthly summary PDF has been cached yet. Please open the Tech4Geeky Dashboard at least once in your browser to automatically generate and synchronize the latest monthly summary report PDF with the server."
+      );
+    }
+
+    const pdfBuffer = Buffer.from(cachedPdf.base64, "base64");
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${cachedPdf.fileName}"`);
+    return res.send(pdfBuffer);
   });
 
   // Proxy to Google Apps Script to bypass browser CORS and redirect issues

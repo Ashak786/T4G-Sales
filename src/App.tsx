@@ -45,7 +45,7 @@ import {
   saveLocalSales,
   DEFAULT_SEED_SALES
 } from './salesDb';
-import { generateInvoicePDF, formatIndianDate, generateMonthlySummaryPDF } from './utils/pdfGenerator';
+import { generateInvoicePDF, formatIndianDate, generateMonthlySummaryPDF, generateMonthlySummaryPDFBase64 } from './utils/pdfGenerator';
 import {
   initAuth,
   googleSignIn,
@@ -326,6 +326,30 @@ export default function App() {
   useEffect(() => {
     handleCalcClear();
   }, [isAddOpen, isEditOpen]);
+
+  // Automatically generate previous month's summary PDF and cache it to the server
+  // whenever sales data changes so that backend integrations/Claude automations can download it instantly.
+  useEffect(() => {
+    if (sales && sales.length > 0) {
+      const timer = setTimeout(async () => {
+        try {
+          const { fileName, base64 } = await generateMonthlySummaryPDFBase64(sales);
+          await fetch('/api/monthly-summary/cache', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ fileName, base64 })
+          });
+          console.log('[Server Sync] Updated monthly summary PDF cache successfully');
+        } catch (err) {
+          console.warn('[Server Sync] Failed to update monthly summary PDF cache:', err);
+        }
+      }, 1500);
+
+      return () => clearTimeout(timer);
+    }
+  }, [sales]);
 
   // Group sales for sales performance bar chart by Month
   const chartData = useMemo(() => {
