@@ -376,14 +376,58 @@ async function handleAppsScriptResponse(response: Response, defaultMessage: stri
   return response.json();
 }
 
+async function fetchAppsScript(url: string, method: 'GET' | 'POST', body?: any): Promise<Response> {
+  try {
+    const isLocalOrDev = window.location.hostname === 'localhost' || 
+                         window.location.hostname === '127.0.0.1' || 
+                         window.location.hostname.includes('run.app') || 
+                         window.location.hostname.includes('aistudio');
+
+    if (isLocalOrDev) {
+      const headers: Record<string, string> = {
+        'x-apps-script-url': url,
+      };
+      if (body) {
+        headers['Content-Type'] = 'application/json';
+      }
+      const response = await fetch('/api/proxy-apps-script', {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (response.status !== 404) {
+        return response;
+      }
+    }
+  } catch (err) {
+    console.warn('Backend proxy call failed, falling back to direct Apps Script call:', err);
+  }
+
+  // Fallback: direct client fetch to Google Apps Script.
+  // When calling Apps Script directly:
+  // - For POST requests, we MUST use 'Content-Type': 'text/plain;charset=utf-8' so that the browser handles it as a simple request and skips preflight checks.
+  console.log('[Direct Client Fetch] Fetching directly from client browser to:', url);
+  if (method === 'POST') {
+    return fetch(url, {
+      method: 'POST',
+      mode: 'cors',
+      headers: {
+        'Content-Type': 'text/plain;charset=utf-8'
+      },
+      body: JSON.stringify(body),
+    });
+  } else {
+    return fetch(url, {
+      method: 'GET',
+      mode: 'cors',
+    });
+  }
+}
+
 export async function fetchSheetsSales(token: string): Promise<Sale[]> {
   if (getAppsScriptUrl()) {
     const url = getAppsScriptUrl()!;
-    const response = await fetch('/api/proxy-apps-script', {
-      headers: {
-        'x-apps-script-url': url
-      }
-    });
+    const response = await fetchAppsScript(url, 'GET');
     const data = await handleAppsScriptResponse(response, 'Google Apps Script connection failed');
     if (!data.values) return [];
     
@@ -425,14 +469,7 @@ export async function insertSheetSale(token: string, sale: Omit<Sale, 'id' | 'cr
 
   if (getAppsScriptUrl()) {
     const url = getAppsScriptUrl()!;
-    const response = await fetch('/api/proxy-apps-script', {
-      method: 'POST',
-      headers: {
-        'x-apps-script-url': url,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ action: 'insert', row })
-    });
+    const response = await fetchAppsScript(url, 'POST', { action: 'insert', row });
     const resData = await handleAppsScriptResponse(response, 'Google Apps Script connection failed');
     if (resData.error) throw new Error(resData.error);
     return fullSale;
@@ -459,14 +496,7 @@ export async function updateSheetSale(token: string, sale: Sale): Promise<Sale> 
   if (getAppsScriptUrl()) {
     const url = getAppsScriptUrl()!;
     const row = saleToRow(sale);
-    const response = await fetch('/api/proxy-apps-script', {
-      method: 'POST',
-      headers: {
-        'x-apps-script-url': url,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ action: 'update', id: sale.id, row })
-    });
+    const response = await fetchAppsScript(url, 'POST', { action: 'update', id: sale.id, row });
     const resData = await handleAppsScriptResponse(response, 'Google Apps Script connection failed');
     if (resData.error) throw new Error(resData.error);
     return sale;
@@ -514,14 +544,7 @@ export async function updateSheetSale(token: string, sale: Sale): Promise<Sale> 
 export async function deleteSheetSale(token: string, id: string): Promise<boolean> {
   if (getAppsScriptUrl()) {
     const url = getAppsScriptUrl()!;
-    const response = await fetch('/api/proxy-apps-script', {
-      method: 'POST',
-      headers: {
-        'x-apps-script-url': url,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ action: 'delete', id })
-    });
+    const response = await fetchAppsScript(url, 'POST', { action: 'delete', id });
     const resData = await handleAppsScriptResponse(response, 'Google Apps Script connection failed');
     if (resData.error) throw new Error(resData.error);
     return true;
@@ -572,14 +595,7 @@ export async function syncLocalToSheets(token: string, localSales: Sale[]): Prom
       }
 
       const rows = toInsert.map(sale => saleToRow(sale));
-      const response = await fetch('/api/proxy-apps-script', {
-        method: 'POST',
-        headers: {
-          'x-apps-script-url': url,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ action: 'sync', rows })
-      });
+      const response = await fetchAppsScript(url, 'POST', { action: 'sync', rows });
       const resData = await handleAppsScriptResponse(response, 'Google Apps Script connection failed');
       if (resData.error) throw new Error(resData.error);
       return { syncedCount: toInsert.length };
@@ -620,14 +636,7 @@ export async function syncLocalToSheets(token: string, localSales: Sale[]): Prom
 export async function clearSheetSales(token: string): Promise<boolean> {
   if (getAppsScriptUrl()) {
     const url = getAppsScriptUrl()!;
-    const response = await fetch('/api/proxy-apps-script', {
-      method: 'POST',
-      headers: {
-        'x-apps-script-url': url,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ action: 'clear' })
-    });
+    const response = await fetchAppsScript(url, 'POST', { action: 'clear' });
     const resData = await handleAppsScriptResponse(response, 'Google Apps Script connection failed');
     if (resData.error) throw new Error(resData.error);
     return true;
@@ -650,14 +659,7 @@ export async function seedSheetSales(token: string, defaultSales: Sale[]): Promi
     await clearSheetSales('');
     const url = getAppsScriptUrl()!;
     const rows = defaultSales.map(sale => saleToRow(sale));
-    const response = await fetch('/api/proxy-apps-script', {
-      method: 'POST',
-      headers: {
-        'x-apps-script-url': url,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ action: 'sync', rows })
-    });
+    const response = await fetchAppsScript(url, 'POST', { action: 'sync', rows });
     const resData = await handleAppsScriptResponse(response, 'Google Apps Script connection failed');
     if (resData.error) throw new Error(resData.error);
     return true;
