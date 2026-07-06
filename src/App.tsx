@@ -1440,23 +1440,23 @@ export default function App() {
             </div>
 
             {/* Scrolling pill row for easy mobile tapping Filter Category with navigation buttons */}
-            <div className="relative flex items-center -mx-4 px-4">
+            <div className="relative flex items-center -mx-4">
               <button
                 type="button"
                 onClick={() => scrollCategory('left')}
-                className={`absolute left-5 z-10 w-7 h-7 rounded-full flex items-center justify-center border shadow-md transition-all focus:outline-none hover:scale-110 active:scale-95 ${
+                className={`hidden md:flex absolute left-2 z-10 w-8 h-8 rounded-full items-center justify-center border shadow-sm transition-all focus:outline-none hover:scale-110 active:scale-95 ${
                   isDark 
-                    ? 'bg-slate-900/90 border-slate-800 text-slate-300 hover:text-white' 
-                    : 'bg-white/95 border-slate-200 text-slate-600 hover:text-slate-900 shadow-sm'
+                    ? 'bg-slate-900 border-slate-850 text-slate-300 hover:text-white hover:bg-slate-800' 
+                    : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                 }`}
                 aria-label="Scroll Left"
               >
-                <ChevronLeft className="w-3.5 h-3.5" />
+                <ChevronLeft className="w-4 h-4" />
               </button>
 
               <div 
                 ref={categoryScrollRef}
-                className="overflow-x-auto scrollbar-none flex items-center gap-2 pb-1.5 pt-0.5 select-none w-full px-8 scroll-smooth"
+                className="overflow-x-auto scrollbar-none flex items-center gap-2 pb-1.5 pt-0.5 select-none w-full px-4 md:px-12 scroll-smooth"
               >
                 <span className="text-[10px] text-slate-500 uppercase font-bold flex-shrink-0 mr-1">Service:</span>
                 <button
@@ -1491,14 +1491,14 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => scrollCategory('right')}
-                className={`absolute right-5 z-10 w-7 h-7 rounded-full flex items-center justify-center border shadow-md transition-all focus:outline-none hover:scale-110 active:scale-95 ${
+                className={`hidden md:flex absolute right-2 z-10 w-8 h-8 rounded-full items-center justify-center border shadow-sm transition-all focus:outline-none hover:scale-110 active:scale-95 ${
                   isDark 
-                    ? 'bg-slate-900/90 border-slate-800 text-slate-300 hover:text-white' 
-                    : 'bg-white/95 border-slate-200 text-slate-600 hover:text-slate-900 shadow-sm'
+                    ? 'bg-slate-900 border-slate-850 text-slate-300 hover:text-white hover:bg-slate-800' 
+                    : 'bg-white border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                 }`}
                 aria-label="Scroll Right"
               >
-                <ChevronRight className="w-3.5 h-3.5" />
+                <ChevronRight className="w-4 h-4" />
               </button>
             </div>
 
