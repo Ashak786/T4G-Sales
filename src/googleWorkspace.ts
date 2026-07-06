@@ -306,24 +306,68 @@ async function getOrCreateSpreadsheet(token: string): Promise<string> {
 
 function parseIndianDate(dateStr: string | undefined): string {
   if (!dateStr) return '';
-  const parts = dateStr.split('-');
-  if (parts.length === 3 && parts[2].length === 4) {
-    // DD-MM-YYYY
-    const [day, month, year] = parts;
-    return `${year}-${month}-${day}`;
+  const cleanDate = dateStr.split(/[ T]/)[0].trim();
+  
+  let parts = cleanDate.split('-');
+  if (parts.length === 3) {
+    if (parts[2].length === 4) {
+      // DD-MM-YYYY
+      const [day, month, year] = parts;
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    } else if (parts[0].length === 4) {
+      // YYYY-MM-DD
+      const [year, month, day] = parts;
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
   }
-  return dateStr;
+  
+  parts = cleanDate.split('/');
+  if (parts.length === 3) {
+    if (parts[2].length === 4) {
+      // DD/MM/YYYY
+      const [day, month, year] = parts;
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    } else if (parts[0].length === 4) {
+      // YYYY/MM/DD
+      const [year, month, day] = parts;
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    }
+  }
+  
+  return cleanDate;
 }
 
 function formatIndianDateLocal(dateStr: string | undefined): string {
   if (!dateStr) return '';
-  const parts = dateStr.split('-');
-  if (parts.length === 3 && parts[0].length === 4) {
-    // YYYY-MM-DD
-    const [year, month, day] = parts;
-    return `${day}-${month}-${year}`;
+  const cleanDate = dateStr.split(/[ T]/)[0].trim();
+  
+  let parts = cleanDate.split('-');
+  if (parts.length === 3) {
+    if (parts[0].length === 4) {
+      // YYYY-MM-DD
+      const [year, month, day] = parts;
+      return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+    } else if (parts[2].length === 4) {
+      // DD-MM-YYYY
+      const [day, month, year] = parts;
+      return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+    }
   }
-  return dateStr;
+  
+  parts = cleanDate.split('/');
+  if (parts.length === 3) {
+    if (parts[0].length === 4) {
+      // YYYY/MM/DD
+      const [year, month, day] = parts;
+      return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+    } else if (parts[2].length === 4) {
+      // DD/MM/YYYY
+      const [day, month, year] = parts;
+      return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+    }
+  }
+  
+  return cleanDate;
 }
 
 // Map Google Sheets standard array to Sale type

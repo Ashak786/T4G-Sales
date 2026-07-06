@@ -243,6 +243,9 @@ export default function App() {
     description: ''
   });
 
+  const [showAddSuggestions, setShowAddSuggestions] = useState<boolean>(false);
+  const [showEditSuggestions, setShowEditSuggestions] = useState<boolean>(false);
+
   // Mini Calculator State
   const [calcInput, setCalcInput] = useState<string>('');
   const [calcResult, setCalcResult] = useState<string>('');
@@ -611,58 +614,65 @@ export default function App() {
       return alert('Enter a valid sales amount');
     }
 
-    setLoading(true);
-    try {
-      const saleData = {
-        sale_date: formData.sale_date,
-        category: formData.category,
-        client_name: formData.client_name.trim(),
-        client_email: formData.client_email.trim() || undefined,
-        client_phone: formData.client_phone.trim() || undefined,
-        amount: Number(formData.amount),
-        payment_method: formData.payment_method,
-        description: formData.description.trim() || undefined
-      };
+    const saleData = {
+      sale_date: formData.sale_date,
+      category: formData.category,
+      client_name: formData.client_name.trim(),
+      client_email: formData.client_email.trim() || undefined,
+      client_phone: formData.client_phone.trim() || undefined,
+      amount: Number(formData.amount),
+      payment_method: formData.payment_method,
+      description: formData.description.trim() || undefined
+    };
 
-      if (googleToken) {
-        const created = await insertSheetSale(googleToken, saleData);
-        // Cache locally as fallback
-        const local = getLocalSales();
-        local.unshift(created);
-        saveLocalSales(local);
-        setSales(local);
-      } else {
-        const newId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
-        const newCreated = new Date().toISOString();
-        const fullSale: Sale = {
-          ...saleData,
-          id: newId,
-          created_at: newCreated
-        };
-        const local = getLocalSales();
-        local.unshift(fullSale);
-        saveLocalSales(local);
-        setSales(local);
-      }
-      
-      // Reset Form State
-      setFormData({
-        sale_date: new Date().toISOString().split('T')[0],
-        category: 'Video editing',
-        client_name: '',
-        client_email: '',
-        client_phone: '',
-        amount: '',
-        payment_method: 'UPI/Online',
-        description: ''
-      });
-      setIsAddOpen(false);
-    } catch (err: any) {
-      if (!handleAuthError(err)) {
-        setErrorMessage(getFriendlyErrorMessage(err));
-      }
-    } finally {
-      setLoading(false);
+    // 1. Generate local optimistic sale item with a temporary ID
+    const tempId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+    const tempCreated = new Date().toISOString();
+    const tempSale: Sale = {
+      ...saleData,
+      id: tempId,
+      created_at: tempCreated
+    };
+
+    // 2. Optimistically update local storage and component state immediately
+    const local = getLocalSales();
+    local.unshift(tempSale);
+    saveLocalSales(local);
+    setSales(local);
+
+    // 3. Close the drawer and reset form state instantly
+    setIsAddOpen(false);
+    setFormData({
+      sale_date: new Date().toISOString().split('T')[0],
+      category: 'Video editing',
+      client_name: '',
+      client_email: '',
+      client_phone: '',
+      amount: '',
+      payment_method: 'UPI/Online',
+      description: ''
+    });
+
+    // 4. Sync to Google Sheets in the background if connected
+    if (googleToken) {
+      insertSheetSale(googleToken, saleData)
+        .then((created) => {
+          // Replace optimistic sale with real created sale containing invoice numbers & backend metadata
+          const currentLocal = getLocalSales();
+          const index = currentLocal.findIndex(s => s.id === tempId);
+          if (index !== -1) {
+            currentLocal[index] = created;
+            saveLocalSales(currentLocal);
+            setSales(currentLocal);
+          }
+        })
+        .catch((err) => {
+          console.error('Background Sheet insertion error:', err);
+          if (!handleAuthError(err)) {
+            setErrorMessage('Failed to sync new sale to Google Sheets: ' + getFriendlyErrorMessage(err));
+            loadData(googleToken);
+          }
+        });
     }
   };
 
@@ -691,50 +701,43 @@ export default function App() {
       return alert('Enter a valid sale amount');
     }
 
-    setLoading(true);
-    try {
-      const updatedItem: Sale = {
-        ...activeSale,
-        sale_date: formData.sale_date,
-        category: formData.category,
-        client_name: formData.client_name.trim(),
-        client_email: formData.client_email.trim() || undefined,
-        client_phone: formData.client_phone.trim() || undefined,
-        amount: Number(formData.amount),
-        payment_method: formData.payment_method,
-        description: formData.description.trim() || undefined
-      };
+    const updatedItem: Sale = {
+      ...activeSale,
+      sale_date: formData.sale_date,
+      category: formData.category,
+      client_name: formData.client_name.trim(),
+      client_email: formData.client_email.trim() || undefined,
+      client_phone: formData.client_phone.trim() || undefined,
+      amount: Number(formData.amount),
+      payment_method: formData.payment_method,
+      description: formData.description.trim() || undefined
+    };
 
-      if (googleToken) {
-        await updateSheetSale(googleToken, updatedItem);
-        // Cache locally
-        const local = getLocalSales();
-        const idx = local.findIndex(s => s.id === updatedItem.id);
-        if (idx !== -1) {
-          local[idx] = updatedItem;
-        } else {
-          local.push(updatedItem);
-        }
-        saveLocalSales(local);
-        setSales(local);
-      } else {
-        const local = getLocalSales();
-        const idx = local.findIndex(s => s.id === updatedItem.id);
-        if (idx !== -1) {
-          local[idx] = updatedItem;
-        }
-        saveLocalSales(local);
-        setSales(local);
-      }
+    // 1. Optimistically update local storage and component state immediately
+    const local = getLocalSales();
+    const idx = local.findIndex(s => s.id === updatedItem.id);
+    if (idx !== -1) {
+      local[idx] = updatedItem;
+    } else {
+      local.push(updatedItem);
+    }
+    saveLocalSales(local);
+    setSales(local);
 
-      setIsEditOpen(false);
-      setActiveSale(null);
-    } catch (err: any) {
-      if (!handleAuthError(err)) {
-        setErrorMessage(getFriendlyErrorMessage(err));
-      }
-    } finally {
-      setLoading(false);
+    // 2. Close Edit drawer and clear selection instantly
+    setIsEditOpen(false);
+    setActiveSale(null);
+
+    // 3. Sync update to Google Sheets in the background if connected
+    if (googleToken) {
+      updateSheetSale(googleToken, updatedItem)
+        .catch((err) => {
+          console.error('Background Sheet update error:', err);
+          if (!handleAuthError(err)) {
+            setErrorMessage('Failed to sync update to Google Sheets: ' + getFriendlyErrorMessage(err));
+            loadData(googleToken);
+          }
+        });
     }
   };
 
@@ -818,6 +821,53 @@ export default function App() {
   const filteredTotal = useMemo(() => {
     return filteredSales.reduce((sum, s) => sum + s.amount, 0);
   }, [filteredSales]);
+
+  // Client suggestions and matching details helper
+  const uniqueClients = useMemo(() => {
+    const clientsMap = new Map<string, { name: string; email?: string; phone?: string; category?: string; count: number }>();
+    sales.forEach(s => {
+      const nameKey = s.client_name.trim().toLowerCase();
+      if (nameKey) {
+        const existing = clientsMap.get(nameKey);
+        if (existing) {
+          existing.count += 1;
+        } else {
+          clientsMap.set(nameKey, {
+            name: s.client_name.trim(),
+            email: s.client_email,
+            phone: s.client_phone,
+            category: s.category,
+            count: 1
+          });
+        }
+      }
+    });
+    return Array.from(clientsMap.values());
+  }, [sales]);
+
+  const clientSuggestions = useMemo(() => {
+    const val = formData.client_name.trim().toLowerCase();
+    if (!val) return [];
+    return uniqueClients.filter(c => c.name.toLowerCase().includes(val));
+  }, [formData.client_name, uniqueClients]);
+
+  const exactMatchClient = useMemo(() => {
+    const val = formData.client_name.trim().toLowerCase();
+    if (!val) return null;
+    return uniqueClients.find(c => c.name.toLowerCase() === val);
+  }, [formData.client_name, uniqueClients]);
+
+  const selectClientSuggestion = (client: typeof uniqueClients[0]) => {
+    setFormData(prev => ({
+      ...prev,
+      client_name: client.name,
+      client_email: client.email || prev.client_email || '',
+      client_phone: client.phone || prev.client_phone || '',
+      category: (client.category as any) || prev.category
+    }));
+    setShowAddSuggestions(false);
+    setShowEditSuggestions(false);
+  };
 
   // Aggregate Metrics
   const stats = useMemo(() => {
@@ -2067,20 +2117,74 @@ export default function App() {
               </div>
 
               {/* Client Name */}
-              <div className="space-y-1">
+              <div className="space-y-1 relative">
                 <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Client identifier / Project</label>
                 <input
                   type="text"
                   placeholder="e.g. Ramesh Dev (Tech Vlog)"
                   required
                   value={formData.client_name}
-                  onChange={(e) => setFormData({ ...formData, client_name: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, client_name: e.target.value });
+                    setShowAddSuggestions(true);
+                  }}
+                  onFocus={() => setShowAddSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowAddSuggestions(false), 200)}
                   className={`w-full border rounded-xl px-4 py-2.5 text-xs font-medium focus:outline-none transition-all ${
                     isDark 
                       ? 'bg-slate-950 border-slate-800 text-slate-100 focus:border-cyan-500 placeholder-slate-650' 
                       : 'bg-slate-50 border-slate-205 text-slate-800 focus:border-indigo-500 placeholder-slate-400'
                   }`}
                 />
+
+                {/* Suggestions Dropdown */}
+                {showAddSuggestions && clientSuggestions.length > 0 && (
+                  <div className={`absolute z-50 left-0 right-0 top-[calc(100%-2px)] border rounded-xl shadow-lg max-h-48 overflow-y-auto ${
+                    isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+                  }`}>
+                    {clientSuggestions.map((client) => (
+                      <button
+                        key={client.name}
+                        type="button"
+                        onClick={() => selectClientSuggestion(client)}
+                        className={`w-full text-left px-4 py-2.5 text-xs font-medium flex items-center justify-between transition-colors ${
+                          isDark ? 'hover:bg-slate-800/60' : 'hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <User className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{client.name}</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-450">
+                          {client.count} {client.count === 1 ? 'past order' : 'past orders'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Match Info Box */}
+                {exactMatchClient && (
+                  <div className={`mt-1.5 px-3 py-2 rounded-xl border flex items-center justify-between gap-2 text-[11px] animate-fadeIn ${
+                    isDark 
+                      ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300' 
+                      : 'bg-emerald-50/50 border-emerald-200/60 text-emerald-800'
+                  }`}>
+                    <div className="flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>
+                        Existing Client: <b>{exactMatchClient.name}</b> ({exactMatchClient.count} {exactMatchClient.count === 1 ? 'past order' : 'past orders'})
+                      </span>
+                    </div>
+                    {exactMatchClient.category && (
+                      <span className={`text-[9.5px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider ${
+                        isDark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-105 text-emerald-800'
+                      }`}>
+                        {exactMatchClient.category}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Date, Status & Payment in structured mobile grid */}
@@ -2353,20 +2457,74 @@ export default function App() {
               </div>
 
               {/* Client Name */}
-              <div className="space-y-1">
+              <div className="space-y-1 relative">
                 <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Client identifier / Project</label>
                 <input
                   type="text"
                   placeholder="e.g. Ramesh Dev (Tech Vlog)"
                   required
                   value={formData.client_name}
-                  onChange={(e) => setFormData({ ...formData, client_name: e.target.value })}
+                  onChange={(e) => {
+                    setFormData({ ...formData, client_name: e.target.value });
+                    setShowEditSuggestions(true);
+                  }}
+                  onFocus={() => setShowEditSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowEditSuggestions(false), 200)}
                   className={`w-full border rounded-xl px-4 py-2.5 text-xs font-medium focus:outline-none transition-all ${
                     isDark 
                       ? 'bg-slate-950 border-slate-800 text-slate-100 focus:border-emerald-500 placeholder-slate-650' 
                       : 'bg-slate-50 border-slate-205 text-slate-800 focus:border-emerald-600 placeholder-slate-400'
                   }`}
                 />
+
+                {/* Suggestions Dropdown */}
+                {showEditSuggestions && clientSuggestions.length > 0 && (
+                  <div className={`absolute z-50 left-0 right-0 top-[calc(100%-2px)] border rounded-xl shadow-lg max-h-48 overflow-y-auto ${
+                    isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+                  }`}>
+                    {clientSuggestions.map((client) => (
+                      <button
+                        key={client.name}
+                        type="button"
+                        onClick={() => selectClientSuggestion(client)}
+                        className={`w-full text-left px-4 py-2.5 text-xs font-medium flex items-center justify-between transition-colors ${
+                          isDark ? 'hover:bg-slate-800/60' : 'hover:bg-slate-100'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <User className="w-3.5 h-3.5 text-slate-400" />
+                          <span>{client.name}</span>
+                        </div>
+                        <span className="text-[10px] font-bold text-slate-450">
+                          {client.count} {client.count === 1 ? 'past order' : 'past orders'}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Match Info Box */}
+                {exactMatchClient && (
+                  <div className={`mt-1.5 px-3 py-2 rounded-xl border flex items-center justify-between gap-2 text-[11px] animate-fadeIn ${
+                    isDark 
+                      ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300' 
+                      : 'bg-emerald-50/50 border-emerald-200/60 text-emerald-800'
+                  }`}>
+                    <div className="flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>
+                        Existing Client: <b>{exactMatchClient.name}</b> ({exactMatchClient.count} {exactMatchClient.count === 1 ? 'past order' : 'past orders'})
+                      </span>
+                    </div>
+                    {exactMatchClient.category && (
+                      <span className={`text-[9.5px] px-1.5 py-0.5 rounded-md font-bold uppercase tracking-wider ${
+                        isDark ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-105 text-emerald-800'
+                      }`}>
+                        {exactMatchClient.category}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Configuration Settings Box */}

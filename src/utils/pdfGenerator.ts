@@ -66,12 +66,35 @@ function formatRupees(amount: number): string {
 // Helper function to format date to Indian Style (DD-MM-YYYY)
 export function formatIndianDate(dateStr: string | undefined): string {
   if (!dateStr) return '';
-  const parts = dateStr.split('-');
-  if (parts.length === 3 && parts[0].length === 4) {
-    const [year, month, day] = parts;
-    return `${day}-${month}-${year}`;
+  const cleanDate = dateStr.split(/[ T]/)[0].trim();
+  
+  let parts = cleanDate.split('-');
+  if (parts.length === 3) {
+    if (parts[0].length === 4) {
+      // YYYY-MM-DD
+      const [year, month, day] = parts;
+      return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+    } else if (parts[2].length === 4) {
+      // DD-MM-YYYY
+      const [day, month, year] = parts;
+      return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+    }
   }
-  return dateStr;
+  
+  parts = cleanDate.split('/');
+  if (parts.length === 3) {
+    if (parts[0].length === 4) {
+      // YYYY/MM/DD
+      const [year, month, day] = parts;
+      return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+    } else if (parts[2].length === 4) {
+      // DD/MM/YYYY
+      const [day, month, year] = parts;
+      return `${day.padStart(2, '0')}-${month.padStart(2, '0')}-${year}`;
+    }
+  }
+  
+  return cleanDate;
 }
 
 // Fetch QR Code image as base64 to embed offline-friendly in the PDF
@@ -111,47 +134,15 @@ export function getGoogleDriveDirectUrl(url: string): string {
   return url;
 }
 
+let cachedLogoBase64: string | null = null;
+
 // Fetch Google Drive logo and convert to Base64, with a robust fallback to local canvas generation
 export async function fetchLogoBase64(logoUrl: string): Promise<string> {
-  const directUrl = getGoogleDriveDirectUrl(logoUrl);
-  try {
-    const response = await fetch(directUrl);
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    const blob = await response.blob();
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = () => resolve(generateLogoBase64());
-      reader.readAsDataURL(blob);
-    });
-  } catch (error) {
-    console.warn("Failed to fetch Google Drive logo via fetch, trying Image element fallback:", error);
-    return new Promise<string>((resolve) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => {
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = img.width;
-          canvas.height = img.height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0);
-            resolve(canvas.toDataURL('image/png'));
-            return;
-          }
-        } catch (err) {
-          console.error('Canvas drawImage failed:', err);
-        }
-        resolve(generateLogoBase64());
-      };
-      img.onerror = () => {
-        console.warn("Image element loading failed, using dynamic local logo.");
-        resolve(generateLogoBase64());
-      };
-      img.src = directUrl;
-    });
-  }
+  if (cachedLogoBase64) return cachedLogoBase64;
+  // Generate the high-resolution dynamic canvas logo instantly.
+  // This bypasses the slow Google Drive request and avoids CORS blockers on Netlify.
+  cachedLogoBase64 = generateLogoBase64();
+  return cachedLogoBase64;
 }
 
 // Generate the beautiful pixel-perfect TECH 4 GEEKY Logo on-the-fly inside the client browser.
@@ -253,16 +244,19 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
 
   // Dynamic UPI payment string for real transactions
   const upiUrl = `upi://pay?pa=ajaykumar6405-4@okicici&pn=TECH4GEEKY&am=${sale.amount}&cu=INR&tn=Invoice%20${invoiceNo}`;
-  const qrBase64 = await fetchQRCodeBase64(upiUrl);
+  const logoUrl = 'https://drive.google.com/open?id=1kVnKI3jYuJO4QkmBtig52cargj1MGR92&usp=drive_fs';
+
+  // Load both resources in parallel to maximize speed
+  const [qrBase64, logoBase64] = await Promise.all([
+    fetchQRCodeBase64(upiUrl),
+    fetchLogoBase64(logoUrl)
+  ]);
 
   // --- 1. BRANDING HEADER BANNER ---
   // Solid Navy blue header rectangle
   doc.setFillColor(navyColor[0], navyColor[1], navyColor[2]);
   doc.rect(15, 15, 180, 32, 'F');
 
-  // Fetch and embed the logo from Google Drive link, with high-resolution canvas logo as a fallback
-  const logoUrl = 'https://drive.google.com/open?id=1kVnKI3jYuJO4QkmBtig52cargj1MGR92&usp=drive_fs';
-  const logoBase64 = await fetchLogoBase64(logoUrl);
   if (logoBase64) {
     const format = logoBase64.startsWith('data:image/jpeg') ? 'JPEG' : 'PNG';
     doc.addImage(logoBase64, format, 25, 18, 68, 17);
