@@ -155,8 +155,39 @@ const renderErrorMessage = (msg: string) => {
 export default function App() {
   // Theme State
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    return (localStorage.getItem('theme') as 'dark' | 'light') || 'dark';
+    const saved = localStorage.getItem('theme') as 'dark' | 'light';
+    if (saved) return saved;
+    // Automatically detect and set initial theme based on the user's Web browser
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      const isBrowserDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      return isBrowserDark ? 'dark' : 'light';
+    }
+    return 'dark';
   });
+
+  // Automatically update yourself based on the Theme (Light, Dark) of the user's Web browser
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    
+    const handleBrowserThemeChange = (e: MediaQueryListEvent) => {
+      const detectedTheme = e.matches ? 'dark' : 'light';
+      console.log(`[Theme Engine] Update yourself based on the Theme (Light, Dark) of the user's Web browser: updating to ${detectedTheme}`);
+      setTheme(detectedTheme);
+      localStorage.setItem('theme', detectedTheme);
+    };
+
+    mediaQuery.addEventListener('change', handleBrowserThemeChange);
+    
+    // Log active state for confirmation
+    const currentBrowserTheme = mediaQuery.matches ? 'dark' : 'light';
+    console.log(`[Theme Engine] Active. Current browser theme is ${currentBrowserTheme}. Will update itself based on the Theme (Light, Dark) of the user's Web browser.`);
+
+    return () => {
+      mediaQuery.removeEventListener('change', handleBrowserThemeChange);
+    };
+  }, []);
 
   const toggleTheme = () => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
@@ -1186,24 +1217,13 @@ export default function App() {
                   preserveAspectRatio="none"
                 >
                   <defs>
-                    {/* Neon Glowing Shadows for Trends */}
-                    <filter id="glow" x="-10%" y="-10%" width="120%" height="120%">
-                      <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#6366f1" floodOpacity="0.4" />
-                    </filter>
-                    <filter id="glow-emerald" x="-10%" y="-10%" width="120%" height="120%">
-                      <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#10b981" floodOpacity="0.4" />
-                    </filter>
-                    <filter id="glow-rose" x="-10%" y="-10%" width="120%" height="120%">
-                      <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#ef4444" floodOpacity="0.4" />
-                    </filter>
-                    
                     {/* Soft Gradient fills */}
                     <linearGradient id="area-grad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#6366f1" stopOpacity="0.3" />
+                      <stop offset="0%" stopColor="#6366f1" stopOpacity="0.25" />
                       <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0" />
                     </linearGradient>
                     <linearGradient id="emerald-grad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#10b981" stopOpacity="0.25" />
+                      <stop offset="0%" stopColor="#10b981" stopOpacity="0.2" />
                       <stop offset="100%" stopColor="#10b981" stopOpacity="0.0" />
                     </linearGradient>
                   </defs>
@@ -1242,11 +1262,10 @@ export default function App() {
                               <path 
                                 d={areaPath} 
                                 fill="url(#area-grad)" 
-                                className="transition-all duration-300"
                               />
                             )}
 
-                            {/* Main Trend Line with Glowing shadow */}
+                            {/* Main Trend Line without glowing CPU filters */}
                             {linePath && (
                               <path 
                                 d={linePath} 
@@ -1254,8 +1273,6 @@ export default function App() {
                                 stroke={isDark ? "#818cf8" : "#4f46e5"} 
                                 strokeWidth={2.5} 
                                 strokeLinecap="round" 
-                                filter="url(#glow)"
-                                className="transition-all duration-300"
                               />
                             )}
 
@@ -1265,11 +1282,11 @@ export default function App() {
                                 <circle 
                                   cx={p.x} 
                                   cy={p.y} 
-                                  r={hoveredIndex === idx ? 6 : 3.5} 
+                                  r={hoveredIndex === idx ? 5.5 : 3.5} 
                                   fill={isDark ? '#4f46e5' : '#818cf8'} 
                                   stroke={isDark ? '#e0e7ff' : '#ffffff'} 
                                   strokeWidth={1.5}
-                                  className="transition-all duration-200 cursor-pointer"
+                                  className="cursor-pointer"
                                 />
                               </g>
                             ))}
@@ -1290,7 +1307,7 @@ export default function App() {
                                 y1={15} 
                                 x2={hp.x} 
                                 y2={180 - paddingY} 
-                                stroke={isDark ? "rgba(129, 140, 248, 0.4)" : "rgba(79, 70, 229, 0.35)"} 
+                                stroke={isDark ? "rgba(129, 140, 248, 0.45)" : "rgba(79, 70, 229, 0.4)"} 
                                 strokeDasharray="3 3" 
                                 strokeWidth={1} 
                               />
@@ -1300,19 +1317,18 @@ export default function App() {
                                 y1={hp.y} 
                                 x2={485} 
                                 y2={hp.y} 
-                                stroke={isDark ? "rgba(129, 140, 248, 0.4)" : "rgba(79, 70, 229, 0.35)"} 
+                                stroke={isDark ? "rgba(129, 140, 248, 0.45)" : "rgba(79, 70, 229, 0.4)"} 
                                 strokeDasharray="3 3" 
                                 strokeWidth={1} 
                               />
                               
-                              {/* Intersection pulsing coordinate circle */}
+                              {/* Intersection coordinate halo - static, elegant, instant and lag-free */}
                               <circle 
                                 cx={hp.x} 
                                 cy={hp.y} 
-                                r={8} 
+                                r={9} 
                                 fill={upColor} 
                                 opacity={0.3} 
-                                className="animate-ping" 
                               />
                               <circle 
                                 cx={hp.x} 
@@ -1326,7 +1342,7 @@ export default function App() {
                           );
                         })()}
 
-                        {/* If not hovering, draw a real-time pulsing live-head tracker node on the last point */}
+                        {/* If not hovering, draw a real-time instant head tracker node on the last point */}
                         {hoveredIndex === null && points.length > 0 && (() => {
                           const lp = points[points.length - 1];
                           const prevLpPrice = chartData[chartData.length - 2]?.amount || lp.item.amount;
@@ -1338,8 +1354,7 @@ export default function App() {
                                 cy={lp.y} 
                                 r={7} 
                                 fill={liveColor} 
-                                opacity={0.3} 
-                                className="animate-pulse" 
+                                opacity={0.25} 
                               />
                               <circle 
                                 cx={lp.x} 
@@ -1769,7 +1784,7 @@ export default function App() {
         {/* SHEETS DETAILED OVERLAYS COVER */}
         {(isAddOpen || isEditOpen || isSettingsOpen || isDetailsOpen) && (
           <div 
-            className="absolute inset-0 bg-slate-950/70 backdrop-blur-xs z-30 transition-opacity" 
+            className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-30 transition-opacity" 
             onClick={() => {
               setIsAddOpen(false);
               setIsEditOpen(false);
@@ -1781,7 +1796,7 @@ export default function App() {
 
         {/* 1. VIEW SALES DETAILS COMPONENT */}
         {isDetailsOpen && activeSale && (
-          <div className={`absolute bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-md lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[90%] flex flex-col transition-all duration-300 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-2xl'}`}>
+          <div className={`fixed bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-md lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[90%] flex flex-col transition-all duration-300 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-2xl'}`}>
             {/* Grab Bar Header */}
             <div className={`w-12 h-1.5 rounded-full mx-auto my-3 flex-shrink-0 ${isDark ? 'bg-slate-700/80' : 'bg-slate-300'}`} />
             
@@ -1923,7 +1938,7 @@ export default function App() {
 
         {/* 2. ADD SALES RECORD COMPONENT */}
         {isAddOpen && (
-          <div className={`absolute bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
+          <div className={`fixed bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
             isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800 shadow-2xl'
           }`}>
             {/* Grab Bar Header */}
@@ -2262,7 +2277,7 @@ export default function App() {
 
         {/* 3. EDIT SALES RECORD COMPONENT */}
         {isEditOpen && activeSale && (
-          <div className={`absolute bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
+          <div className={`fixed bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
             isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800 shadow-2xl'
           }`}>
             {/* Grab Bar Header */}
@@ -2601,7 +2616,7 @@ export default function App() {
 
         {/* 4. GOOGLE DRIVE & GOOGLE SHEETS BASE CONFIGS COMPONENT (SETTINGS MENU) */}
         {isSettingsOpen && (
-          <div className="absolute bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] bg-slate-900 rounded-t-[32px] border-t border-slate-800 z-40 max-h-[94%] flex flex-col transition-all duration-300">
+          <div className="fixed bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] bg-slate-900 rounded-t-[32px] border-t border-slate-800 z-40 max-h-[94%] flex flex-col transition-all duration-300">
             <div className="pt-5 px-5 pb-3 border-b border-slate-850 flex items-center justify-between flex-shrink-0">
               <span className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
                 <Database className="w-4 h-4 text-indigo-400" />
