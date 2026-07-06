@@ -56,7 +56,9 @@ import {
   setSpreadsheetId,
   extractSpreadsheetId,
   clearSheetSales,
-  seedSheetSales
+  seedSheetSales,
+  getAppsScriptUrl,
+  setAppsScriptUrl
 } from './googleWorkspace';
 
 const getFriendlyErrorMessage = (err: any): string => {
@@ -65,6 +67,10 @@ const getFriendlyErrorMessage = (err: any): string => {
   
   if (msg.includes('auth/unauthorized-domain') || msg.toLowerCase().includes('unauthorized-domain') || msg.toLowerCase().includes('unauthorized domain')) {
     return 'UNAUTHORIZED_DOMAIN_ERROR: Firebase auth/unauthorized-domain. This Netlify or custom domain is not authorized in your Firebase Project! To resolve this: \n1. Open your Firebase Console (https://console.firebase.google.com)\n2. Navigate to "Authentication" -> "Settings" -> "Authorized Domains"\n3. Click "Add domain" and enter your Netlify app domain (e.g., your-app.netlify.app or custom domain).\n4. Save and reload this page to connect!';
+  }
+
+  if (msg.includes('Google Apps Script connection failed: 403') || msg.includes('Google Apps Script connection failed: Forbidden') || msg.includes('403')) {
+    return 'APPS_SCRIPT_403_ERROR: Google Apps Script Web App returned Forbidden (HTTP 403).\n\nThis means your Google Apps Script was either not published, or deployed with incorrect permissions.\n\nTo resolve this in 30 seconds:\n1. Open your Google Sheet.\n2. In the top menu, go to Extensions > Apps Script.\n3. Click "Deploy" (top right) -> "Manage deployments".\n4. Click the Pencil icon to Edit your current deployment, OR click "New deployment".\n5. Change "Who has access" to "Anyone" (instead of "Only myself"). This is safe and necessary so the app can sync.\n6. Change "Execute as" to "Me".\n7. Click "Deploy", approve any Google security permissions if prompted, copy the new Web App URL, and paste it under Option A in Connection Settings!';
   }
 
   if (msg.includes('API_DISABLED_ERROR')) {
@@ -88,6 +94,7 @@ const renderErrorMessage = (msg: string) => {
   const isRateLimit = msg.startsWith('RATE_LIMIT_ERROR:');
   const isOffline = msg.startsWith('OFFLINE_ERROR:');
   const isUnauthorizedDomain = msg.startsWith('UNAUTHORIZED_DOMAIN_ERROR:');
+  const isAppsScript403 = msg.startsWith('APPS_SCRIPT_403_ERROR:');
   
   let cleanMsg = msg;
   if (isRateLimit) {
@@ -96,6 +103,8 @@ const renderErrorMessage = (msg: string) => {
     cleanMsg = msg.replace('OFFLINE_ERROR:', '').trim();
   } else if (isUnauthorizedDomain) {
     cleanMsg = msg.replace('UNAUTHORIZED_DOMAIN_ERROR:', '').trim();
+  } else if (isAppsScript403) {
+    cleanMsg = msg.replace('APPS_SCRIPT_403_ERROR:', '').trim();
   } else {
     cleanMsg = msg.replace('API_DISABLED_ERROR:', '').trim();
   }
@@ -111,6 +120,9 @@ const renderErrorMessage = (msg: string) => {
       )}
       {isUnauthorizedDomain && (
         <span className="font-bold text-red-500 dark:text-red-400 text-xs">Firebase Authorization Required</span>
+      )}
+      {isAppsScript403 && (
+        <span className="font-bold text-rose-500 dark:text-rose-400 text-xs flex items-center gap-1">⚠️ Google Apps Script 403 Forbidden Access</span>
       )}
       <span className="leading-relaxed whitespace-pre-line text-xs font-mono">
         {parts.map((part, index) => {
@@ -166,6 +178,9 @@ export default function App() {
   // Google Connection / Auth state
   const [user, setUser] = useState<any>(null);
   const [googleToken, setGoogleToken] = useState<string | null>(null);
+  const [appsScriptInput, setAppsScriptInput] = useState<string>(() => {
+    return getAppsScriptUrl() || '';
+  });
   const [sheetInput, setSheetInput] = useState<string>(() => {
     return localStorage.getItem('tech4geeky_google_sheet_id') || '1yE9_IElbygv0tMCTLS7en-HsdxigwQKk';
   });
@@ -184,7 +199,7 @@ export default function App() {
   const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'amount-desc' | 'amount-asc'>('date-desc');
 
   // Stock Market Graph State
-  const [chartType, setChartType] = useState<'area' | 'candlestick' | 'bars'>('area');
+  const chartType = 'area';
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   // Modal Control States
@@ -1086,35 +1101,12 @@ export default function App() {
                       );
                     })()}
                   </div>
-                  
                   {/* Selected Month Indicator */}
                   <p className="text-[10px] font-semibold text-slate-400 mt-0.5">
                     {hoveredIndex !== null 
                       ? `Hovered: ${chartData[hoveredIndex]?.date}` 
                       : `Active Month: ${chartData[chartData.length - 1]?.date || 'N/A'}`}
                   </p>
-                </div>
-
-                {/* Stock Toggles (Line/Area vs Candlestick vs Bars) */}
-                <div className={`flex p-0.5 rounded-lg border self-start sm:self-center ${
-                  isDark ? 'bg-slate-950 border-slate-800' : 'bg-slate-100 border-slate-200'
-                }`}>
-                  {(['area', 'candlestick', 'bars'] as const).map((type) => (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => setChartType(type)}
-                      className={`text-[9.5px] font-bold tracking-wider px-2.5 py-1 rounded-md transition duration-200 uppercase cursor-pointer ${
-                        chartType === type
-                          ? isDark 
-                            ? 'bg-slate-800 text-indigo-400 border border-slate-750 shadow-xs font-black' 
-                            : 'bg-white text-indigo-600 border border-slate-200 shadow-xs font-black'
-                          : isDark ? 'text-slate-500 hover:text-slate-300' : 'text-slate-500 hover:text-slate-800'
-                      }`}
-                    >
-                      {type === 'area' ? 'Trend' : type === 'candlestick' ? 'Candles' : 'Volume'}
-                    </button>
-                  ))}
                 </div>
               </div>
 
@@ -1214,98 +1206,6 @@ export default function App() {
                               </g>
                             ))}
                           </>
-                        )}
-
-                        {/* CANDLESTICK TYPE RENDER */}
-                        {chartType === 'candlestick' && (
-                          <g className="transition-all duration-300">
-                            {points.map((p, idx) => {
-                              const amount = p.item.amount;
-                              // Procedural Open / Close to form candlesticks based on actual monthly performance
-                              const prevAmount = chartData[idx - 1]?.amount || amount * 0.9;
-                              const isProfit = amount >= prevAmount;
-
-                              const closeVal = amount;
-                              const openVal = prevAmount;
-                              
-                              // Create procedural High/Low limit
-                              const amplitude = (maxAmount - minAmount) * 0.12 || 100;
-                              const highVal = Math.max(openVal, closeVal) + amplitude * (1 + 0.3 * Math.sin(idx));
-                              const lowVal = Math.max(Math.min(openVal, closeVal) - amplitude * (1 + 0.3 * Math.cos(idx)), 0);
-
-                              // Map everything to Y coordinates
-                              const mapY = (val: number) => 180 - paddingY - (maxAmount > minAmount ? ((val - minAmount) / (maxAmount - minAmount)) * chartH : chartH / 2);
-                              const yOpen = mapY(openVal);
-                              const yClose = mapY(closeVal);
-                              const yHigh = mapY(highVal);
-                              const yLow = mapY(lowVal);
-
-                              const rectY = Math.min(yOpen, yClose);
-                              const rectH = Math.max(Math.abs(yOpen - yClose), 4);
-                              const candleWidth = Math.max(Math.min(chartW / chartData.length * 0.45, 16), 5);
-
-                              const candleColor = isProfit 
-                                ? (isDark ? '#10b981' : '#059669') 
-                                : (isDark ? '#ef4444' : '#dc2626');
-
-                              return (
-                                <g key={idx} className="cursor-pointer">
-                                  {/* Shadow wick line */}
-                                  <line 
-                                    x1={p.x} 
-                                    y1={yHigh} 
-                                    x2={p.x} 
-                                    y2={yLow} 
-                                    stroke={candleColor} 
-                                    strokeWidth={1.5} 
-                                  />
-                                  {/* Candle Body rect */}
-                                  <rect 
-                                    x={p.x - candleWidth / 2} 
-                                    y={rectY} 
-                                    width={candleWidth} 
-                                    height={rectH} 
-                                    fill={candleColor}
-                                    rx={1}
-                                    stroke={candleColor}
-                                    strokeWidth={hoveredIndex === idx ? 1.5 : 0}
-                                    className="transition-all duration-200"
-                                    style={{
-                                      filter: hoveredIndex === idx 
-                                        ? (isProfit ? 'url(#glow-emerald)' : 'url(#glow-rose)') 
-                                        : 'none'
-                                    }}
-                                  />
-                                </g>
-                              );
-                            })}
-                          </g>
-                        )}
-
-                        {/* VOLUME BARS TYPE RENDER */}
-                        {chartType === 'bars' && (
-                          <g className="transition-all duration-300">
-                            {points.map((p, idx) => {
-                              const barW = Math.max(Math.min(chartW / chartData.length * 0.6, 24), 6);
-                              const barH = (180 - paddingY) - p.y;
-                              const isHovered = hoveredIndex === idx;
-
-                              return (
-                                <g key={idx} className="cursor-pointer">
-                                  <rect 
-                                    x={p.x - barW / 2} 
-                                    y={p.y} 
-                                    width={barW} 
-                                    height={Math.max(barH, 3)} 
-                                    fill={isHovered ? (isDark ? '#818cf8' : '#4f46e5') : (isDark ? '#4f46e5' : '#c7d2fe')} 
-                                    rx={2}
-                                    opacity={isHovered ? 1 : 0.8}
-                                    className="transition-all duration-150"
-                                  />
-                                </g>
-                              );
-                            })}
-                          </g>
                         )}
 
                         {/* Interactive Vertical and Horizontal Crosshair overlay */}
@@ -2493,6 +2393,218 @@ export default function App() {
                   ) : (
                     <span className="px-2.5 py-1 text-[10px] bg-amber-950 text-amber-400 border border-amber-900 rounded-full font-bold">♟ Sandbox Offline</span>
                   )}
+                </div>
+              </div>
+
+              {/* Option A: Google Apps Script 24/7 Connection */}
+              <div className="p-4 bg-slate-950 rounded-xl border border-indigo-950 space-y-3">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] uppercase text-indigo-400 font-extrabold tracking-wider block">
+                      Option A: 24/7 Google Apps Script URL
+                    </label>
+                    <span className="px-1.5 py-0.5 bg-indigo-950 text-indigo-400 border border-indigo-900 rounded font-mono text-[9px] font-bold">Recommended</span>
+                  </div>
+                  <p className="text-[10.5px] text-slate-400 leading-normal">
+                    This keeps the app connected <b>24/7</b> to Google Sheets with <b>zero login prompts</b> or expired session errors.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={appsScriptInput}
+                      onChange={(e) => setAppsScriptInput(e.target.value)}
+                      placeholder="Paste deployed Google Apps Script Web App URL"
+                      className="flex-1 bg-slate-900 border border-slate-800 text-xs px-3 py-2 rounded-lg text-slate-300 focus:outline-none focus:border-indigo-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!appsScriptInput.trim()) {
+                          alert('Please enter a valid Google Apps Script Web App URL.');
+                          return;
+                        }
+                        if (!appsScriptInput.trim().startsWith('https://script.google.com/')) {
+                          alert('Please enter a valid Google Apps Script URL starting with https://script.google.com/');
+                          return;
+                        }
+                        
+                        setLoading(true);
+                        try {
+                          setAppsScriptUrl(appsScriptInput.trim());
+                          // Re-trigger auth initialization
+                          initAuth(
+                            (user, token) => {
+                              setUser(user);
+                              setGoogleToken(token);
+                              loadData(token);
+                            },
+                            () => {
+                              setUser(null);
+                              setGoogleToken(null);
+                              loadData(null);
+                            }
+                          );
+                          alert('Google Apps Script URL saved and connected successfully!');
+                        } catch (err: any) {
+                          alert('Failed to connect via Apps Script: ' + err.message);
+                        } finally {
+                          setLoading(false);
+                        }
+                      }}
+                      className="px-3 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white font-bold transition flex items-center justify-center cursor-pointer text-[11px]"
+                    >
+                      Connect
+                    </button>
+                  </div>
+
+                  {getAppsScriptUrl() && (
+                    <div className="flex items-center justify-between pt-1">
+                      <p className="text-[10px] text-emerald-400 flex items-center gap-1.5 font-semibold">
+                        <span>●</span> Connected to active 24/7 web gateway
+                      </p>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (window.confirm('Are you sure you want to disconnect Google Apps Script? This will revert back to local or standard Google login.')) {
+                            setLoading(true);
+                            setAppsScriptUrl(null);
+                            setAppsScriptInput('');
+                            // Re-trigger auth init to fallback
+                            initAuth(
+                              (user, token) => {
+                                setUser(user);
+                                setGoogleToken(token);
+                                loadData(token);
+                              },
+                              () => {
+                                setUser(null);
+                                setGoogleToken(null);
+                                loadData(null);
+                              }
+                            );
+                            setLoading(false);
+                            alert('Google Apps Script disconnected!');
+                          }
+                        }}
+                        className="text-[10px] text-red-400 hover:text-red-300 underline font-semibold"
+                      >
+                        Disconnect Gateway
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Toggle Instructions */}
+                  <details className="text-[10.5px] bg-slate-900 rounded-lg border border-slate-850 p-2.5 mt-2">
+                    <summary className="text-slate-400 font-bold hover:text-slate-200 cursor-pointer list-none flex items-center justify-between">
+                      <span>⚙️ Setup Instructions & Code</span>
+                      <span className="text-[9px] text-indigo-400">Expand</span>
+                    </summary>
+                    <div className="mt-2.5 space-y-2 text-slate-300">
+                      <ol className="list-decimal pl-4 space-y-1.5">
+                        <li>Open your <a href="https://docs.google.com/spreadsheets/d/1ja7eXl1Ie9cFyyZMBabq54-EhFtgkY0JDjqof6cWWDQ" target="_blank" rel="noreferrer" className="text-indigo-400 underline">Google Sheet</a>.</li>
+                        <li>In the top menu, go to <b className="text-white">Extensions &gt; Apps Script</b>.</li>
+                        <li>Delete any existing code, paste the script code below, and click <b className="text-white">Save (floppy disk icon)</b>.</li>
+                        <li>Click <b className="text-white">Deploy &gt; New deployment</b>.</li>
+                        <li>Click the gear icon and select <b className="text-white">Web app</b>.</li>
+                        <li>Set <i>Execute as:</i> <b className="text-white">Me</b> and <i>Who has access:</i> <b className="text-white">Anyone</b>.</li>
+                        <li>Click <b className="text-white">Deploy</b>, authorize permissions, copy the <b className="text-indigo-400">Web App URL</b>, and paste it above!</li>
+                      </ol>
+
+                      <div className="pt-2">
+                        <p className="text-[9.5px] uppercase font-bold text-slate-500 mb-1 tracking-wider">Apps Script Code:</p>
+                        <textarea
+                          readOnly
+                          value={`function doGet(e) {
+  var sheet = SpreadsheetApp.openById('1ja7eXl1Ie9cFyyZMBabq54-EhFtgkY0JDjqof6cWWDQ').getSheetByName('SalesList');
+  if (!sheet) {
+    var ss = SpreadsheetApp.openById('1ja7eXl1Ie9cFyyZMBabq54-EhFtgkY0JDjqof6cWWDQ');
+    sheet = ss.insertSheet('SalesList');
+    var headers = ['Sl No.', 'Inv No.', 'Client Name', 'Date', 'Category', 'Amount', 'Mode of Transaction', 'Notes', 'ID'];
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  }
+  
+  var rows = sheet.getDataRange().getValues();
+  var data = [];
+  for (var i = 1; i < rows.length; i++) {
+    var row = rows[i];
+    if (row[0] === "" && row[2] === "") continue; 
+    data.push(row);
+  }
+  
+  return ContentService.createTextOutput(JSON.stringify({ values: data }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  var sheet = SpreadsheetApp.openById('1ja7eXl1Ie9cFyyZMBabq54-EhFtgkY0JDjqof6cWWDQ').getSheetByName('SalesList');
+  var params = JSON.parse(e.postData.contents);
+  var action = params.action;
+  
+  if (action === 'insert') {
+    var row = params.row;
+    sheet.appendRow(row);
+    return ContentService.createTextOutput(JSON.stringify({ success: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  
+  if (action === 'update') {
+    var id = params.id;
+    var row = params.row;
+    var rows = sheet.getDataRange().getValues();
+    var found = false;
+    for (var i = 1; i < rows.length; i++) {
+      if (rows[i][8] === id) {
+        sheet.getRange(i + 1, 1, 1, row.length).setValues([row]);
+        found = true;
+        break;
+      }
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: found }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  
+  if (action === 'delete') {
+    var id = params.id;
+    var rows = sheet.getDataRange().getValues();
+    var found = false;
+    for (var i = 1; i < rows.length; i++) {
+      if (rows[i][8] === id) {
+        sheet.getRange(i + 1, 1, 1, 9).clearContent();
+        found = true;
+        break;
+      }
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: found }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === 'sync') {
+    var rowsToInsert = params.rows;
+    if (rowsToInsert && rowsToInsert.length > 0) {
+      var lastRow = sheet.getLastRow();
+      sheet.getRange(lastRow + 1, 1, rowsToInsert.length, rowsToInsert[0].length).setValues(rowsToInsert);
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true, count: rowsToInsert.length }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  if (action === 'clear') {
+    var lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      sheet.getRange(2, 1, lastRow - 1, 9).clearContent();
+    }
+    return ContentService.createTextOutput(JSON.stringify({ success: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  
+  return ContentService.createTextOutput(JSON.stringify({ error: 'Invalid action' }))
+    .setMimeType(ContentService.MimeType.JSON);
+}`}
+                          className="w-full h-32 bg-slate-950 border border-slate-800 rounded p-1.5 font-mono text-[9.5px] text-indigo-300 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                  </details>
                 </div>
               </div>
 

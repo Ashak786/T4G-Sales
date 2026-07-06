@@ -22,19 +22,68 @@ provider.addScope('https://www.googleapis.com/auth/spreadsheets');
 let isSigningIn = false;
 const SPREADSHEET_ID_CACHE_KEY = 'tech4geeky_google_sheet_id';
 const GOOGLE_ACCESS_TOKEN_KEY = 'tech4geeky_google_access_token';
+export const APPS_SCRIPT_URL_KEY = 'tech4geeky_apps_script_url';
 
 // Read token from persistent storage initially
 let cachedAccessToken: string | null = localStorage.getItem(GOOGLE_ACCESS_TOKEN_KEY);
+
+export function getAppsScriptUrl(): string | null {
+  const url = localStorage.getItem(APPS_SCRIPT_URL_KEY);
+  if (url === null) {
+    const disconnected = localStorage.getItem('tech4geeky_disconnected_gateway');
+    if (disconnected === 'true') {
+      return null;
+    }
+    const defaultUrl = 'https://script.google.com/macros/s/AKfycbxDPTiNCV95mv91CzS_1lSX34T_ZLhI-mhSx-4fNkRX161sXUzbVNm4xW7dQ7EnbyhXDA/exec';
+    localStorage.setItem(APPS_SCRIPT_URL_KEY, defaultUrl);
+    return defaultUrl;
+  }
+  return url || null;
+}
+
+export function setAppsScriptUrl(url: string | null) {
+  if (url) {
+    localStorage.setItem(APPS_SCRIPT_URL_KEY, url.trim());
+    localStorage.removeItem('tech4geeky_disconnected_gateway');
+  } else {
+    localStorage.removeItem(APPS_SCRIPT_URL_KEY);
+    localStorage.setItem('tech4geeky_disconnected_gateway', 'true');
+  }
+}
 
 export const initAuth = (
   onAuthSuccess?: (user: User, token: string) => void,
   onAuthFailure?: () => void
 ) => {
+  if (getAppsScriptUrl()) {
+    const dummyUser = {
+      uid: 'apps_script_user',
+      displayName: 'Apps Script Connection',
+      email: 'connected-24-7@apps-script.local',
+      photoURL: null,
+    } as any;
+    setTimeout(() => {
+      if (onAuthSuccess) onAuthSuccess(dummyUser, 'apps_script');
+    }, 50);
+    return () => {};
+  }
+
   let redirectChecked = false;
   let authStateUser: User | null = null;
   let hasCheckedAuthOnce = false;
 
   const emitAuthState = () => {
+    if (getAppsScriptUrl()) {
+      const dummyUser = {
+        uid: 'apps_script_user',
+        displayName: 'Apps Script Connection',
+        email: 'connected-24-7@apps-script.local',
+        photoURL: null,
+      } as any;
+      if (onAuthSuccess) onAuthSuccess(dummyUser, 'apps_script');
+      return;
+    }
+
     if (!redirectChecked) {
       // Do not emit yet! We must wait for getRedirectResult to finish so we don't prematurely report "no token" during the redirect callback.
       return;
@@ -120,6 +169,7 @@ export const logout = async () => {
   cachedAccessToken = null;
   localStorage.removeItem(SPREADSHEET_ID_CACHE_KEY);
   localStorage.removeItem(GOOGLE_ACCESS_TOKEN_KEY);
+  localStorage.removeItem(APPS_SCRIPT_URL_KEY);
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
@@ -310,7 +360,41 @@ function saleToRow(sale: Sale): any[] {
   ];
 }
 
+async function handleAppsScriptResponse(response: Response, defaultMessage: string) {
+  if (!response.ok) {
+    let errorDetail = '';
+    try {
+      const data = await response.json();
+      errorDetail = data.error || data.message || JSON.stringify(data);
+    } catch (e) {
+      try {
+        errorDetail = await response.text();
+      } catch (ex) {}
+    }
+    throw new Error(`${defaultMessage}: ${errorDetail || response.statusText || response.status}`);
+  }
+  return response.json();
+}
+
 export async function fetchSheetsSales(token: string): Promise<Sale[]> {
+  if (getAppsScriptUrl()) {
+    const url = getAppsScriptUrl()!;
+    const response = await fetch('/api/proxy-apps-script', {
+      headers: {
+        'x-apps-script-url': url
+      }
+    });
+    const data = await handleAppsScriptResponse(response, 'Google Apps Script connection failed');
+    if (!data.values) return [];
+    
+    const sales: Sale[] = [];
+    data.values.forEach((row: any[]) => {
+      const sale = rowToSale(row);
+      if (sale) sales.push(sale);
+    });
+    return sales;
+  }
+
   const spreadsheetId = await getOrCreateSpreadsheet(token);
   const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A2:I10000`, {
     headers: { Authorization: `Bearer ${token}` }
@@ -328,7 +412,6 @@ export async function fetchSheetsSales(token: string): Promise<Sale[]> {
 }
 
 export async function insertSheetSale(token: string, sale: Omit<Sale, 'id' | 'created_at'>): Promise<Sale> {
-  const spreadsheetId = await getOrCreateSpreadsheet(token);
   const id = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
   const created_at = new Date().toISOString();
   
@@ -340,6 +423,22 @@ export async function insertSheetSale(token: string, sale: Omit<Sale, 'id' | 'cr
 
   const row = saleToRow(fullSale);
 
+  if (getAppsScriptUrl()) {
+    const url = getAppsScriptUrl()!;
+    const response = await fetch('/api/proxy-apps-script', {
+      method: 'POST',
+      headers: {
+        'x-apps-script-url': url,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ action: 'insert', row })
+    });
+    const resData = await handleAppsScriptResponse(response, 'Google Apps Script connection failed');
+    if (resData.error) throw new Error(resData.error);
+    return fullSale;
+  }
+
+  const spreadsheetId = await getOrCreateSpreadsheet(token);
   const appendRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A:I:append?valueInputOption=USER_ENTERED`, {
     method: 'POST',
     headers: {
@@ -357,6 +456,22 @@ export async function insertSheetSale(token: string, sale: Omit<Sale, 'id' | 'cr
 }
 
 export async function updateSheetSale(token: string, sale: Sale): Promise<Sale> {
+  if (getAppsScriptUrl()) {
+    const url = getAppsScriptUrl()!;
+    const row = saleToRow(sale);
+    const response = await fetch('/api/proxy-apps-script', {
+      method: 'POST',
+      headers: {
+        'x-apps-script-url': url,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ action: 'update', id: sale.id, row })
+    });
+    const resData = await handleAppsScriptResponse(response, 'Google Apps Script connection failed');
+    if (resData.error) throw new Error(resData.error);
+    return sale;
+  }
+
   const spreadsheetId = await getOrCreateSpreadsheet(token);
   
   // Find matching row by ID (Column I is index 8)
@@ -397,6 +512,21 @@ export async function updateSheetSale(token: string, sale: Sale): Promise<Sale> 
 }
 
 export async function deleteSheetSale(token: string, id: string): Promise<boolean> {
+  if (getAppsScriptUrl()) {
+    const url = getAppsScriptUrl()!;
+    const response = await fetch('/api/proxy-apps-script', {
+      method: 'POST',
+      headers: {
+        'x-apps-script-url': url,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ action: 'delete', id })
+    });
+    const resData = await handleAppsScriptResponse(response, 'Google Apps Script connection failed');
+    if (resData.error) throw new Error(resData.error);
+    return true;
+  }
+
   const spreadsheetId = await getOrCreateSpreadsheet(token);
   
   // Find matching row by ID (Column I is index 8)
@@ -431,6 +561,30 @@ export async function deleteSheetSale(token: string, id: string): Promise<boolea
 // Bulk Sync Local Offline entries to Google Sheets
 export async function syncLocalToSheets(token: string, localSales: Sale[]): Promise<{ syncedCount: number; error?: string }> {
   try {
+    if (getAppsScriptUrl()) {
+      const url = getAppsScriptUrl()!;
+      const sheetsSales = await fetchSheetsSales('');
+      const sheetsIds = new Set(sheetsSales.map(item => item.id));
+      const toInsert = localSales.filter(item => !sheetsIds.has(item.id));
+
+      if (toInsert.length === 0) {
+        return { syncedCount: 0 };
+      }
+
+      const rows = toInsert.map(sale => saleToRow(sale));
+      const response = await fetch('/api/proxy-apps-script', {
+        method: 'POST',
+        headers: {
+          'x-apps-script-url': url,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ action: 'sync', rows })
+      });
+      const resData = await handleAppsScriptResponse(response, 'Google Apps Script connection failed');
+      if (resData.error) throw new Error(resData.error);
+      return { syncedCount: toInsert.length };
+    }
+
     const spreadsheetId = await getOrCreateSpreadsheet(token);
     const sheetsSales = await fetchSheetsSales(token);
 
@@ -464,6 +618,21 @@ export async function syncLocalToSheets(token: string, localSales: Sale[]): Prom
 }
 
 export async function clearSheetSales(token: string): Promise<boolean> {
+  if (getAppsScriptUrl()) {
+    const url = getAppsScriptUrl()!;
+    const response = await fetch('/api/proxy-apps-script', {
+      method: 'POST',
+      headers: {
+        'x-apps-script-url': url,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ action: 'clear' })
+    });
+    const resData = await handleAppsScriptResponse(response, 'Google Apps Script connection failed');
+    if (resData.error) throw new Error(resData.error);
+    return true;
+  }
+
   const spreadsheetId = await getOrCreateSpreadsheet(token);
   const clearRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A2:I:clear`, {
     method: 'POST',
@@ -477,6 +646,23 @@ export async function clearSheetSales(token: string): Promise<boolean> {
 
 // Seed Google Sheets with default database (8 items starting from INV-001)
 export async function seedSheetSales(token: string, defaultSales: Sale[]): Promise<boolean> {
+  if (getAppsScriptUrl()) {
+    await clearSheetSales('');
+    const url = getAppsScriptUrl()!;
+    const rows = defaultSales.map(sale => saleToRow(sale));
+    const response = await fetch('/api/proxy-apps-script', {
+      method: 'POST',
+      headers: {
+        'x-apps-script-url': url,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ action: 'sync', rows })
+    });
+    const resData = await handleAppsScriptResponse(response, 'Google Apps Script connection failed');
+    if (resData.error) throw new Error(resData.error);
+    return true;
+  }
+
   const spreadsheetId = await getOrCreateSpreadsheet(token);
   
   // First clear any existing data starting from row 2
