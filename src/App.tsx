@@ -814,6 +814,11 @@ export default function App() {
     return result;
   }, [sales, searchQuery, selectedCategory, selectedPayment, sortBy]);
 
+  const isFiltered = searchQuery.trim() !== '' || selectedCategory !== 'All' || selectedPayment !== 'All';
+  const filteredTotal = useMemo(() => {
+    return filteredSales.reduce((sum, s) => sum + s.amount, 0);
+  }, [filteredSales]);
+
   // Aggregate Metrics
   const stats = useMemo(() => {
     let totalSales = 0;
@@ -1573,6 +1578,42 @@ export default function App() {
 
           {/* Core Transaction Card Timeline */}
           <section className="space-y-2.5">
+            {isFiltered && (
+              <div className={`p-3.5 rounded-2xl border flex flex-row items-center justify-between gap-3 transition-all duration-200 ${
+                isDark 
+                  ? 'bg-slate-900/40 border-slate-800/80' 
+                  : 'bg-indigo-50/30 border-indigo-100/70 shadow-3xs'
+              }`}>
+                <div className="flex items-center gap-2.5">
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${
+                    isDark ? 'bg-indigo-500/10 text-indigo-400' : 'bg-indigo-50 text-indigo-600'
+                  }`}>
+                    <TrendingUp className="w-4.5 h-4.5" />
+                  </div>
+                  <div>
+                    <h3 className={`text-[10px] font-extrabold uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      {searchQuery.trim() && selectedCategory !== 'All'
+                        ? 'Filtered Category & Search'
+                        : searchQuery.trim()
+                          ? `Search: "${searchQuery}"`
+                          : selectedCategory !== 'All'
+                            ? `Category: ${selectedCategory}`
+                            : 'Filtered Total'}
+                    </h3>
+                    <p className="text-[11px] text-slate-500 font-medium">
+                      {filteredSales.length} {filteredSales.length === 1 ? 'record' : 'records'} found
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Grand Total</p>
+                  <p className={`text-base font-black ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
+                    ₹{filteredTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {loading && sales.length === 0 ? (
               <div className="py-12 text-center text-slate-500 space-y-2">
                 <RotateCcw className="w-8 h-8 mx-auto animate-spin text-indigo-500" />
