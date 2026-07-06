@@ -23,6 +23,8 @@ import {
   Lock,
   Settings,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Filter,
   CheckCircle,
   Clock,
@@ -194,6 +196,17 @@ export default function App() {
   // Search & Filters State
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
+  const categoryScrollRef = useRef<HTMLDivElement>(null);
+
+  const scrollCategory = (direction: 'left' | 'right') => {
+    if (categoryScrollRef.current) {
+      const scrollAmount = 180;
+      categoryScrollRef.current.scrollBy({
+        left: direction === 'left' ? -scrollAmount : scrollAmount,
+        behavior: 'smooth'
+      });
+    }
+  };
   const [selectedStatus, setSelectedStatus] = useState<string>('All');
   const [selectedPayment, setSelectedPayment] = useState<string>('All');
   const [sortBy, setSortBy] = useState<'date-desc' | 'date-asc' | 'amount-desc' | 'amount-asc'>('date-desc');
@@ -853,10 +866,10 @@ export default function App() {
 
 
   return (
-    <div className={`min-h-screen ${isDark ? 'bg-slate-900 text-slate-100' : 'bg-slate-100 text-slate-800'} font-sans antialiased flex flex-col md:py-6 md:px-4 items-center justify-start transition-colors duration-200`}>
+    <div className={`min-h-screen ${isDark ? 'bg-slate-900 lg:bg-slate-950 text-slate-100' : 'bg-slate-100 lg:bg-white text-slate-800'} font-sans antialiased flex flex-col md:py-6 md:px-4 lg:p-0 items-center justify-start transition-colors duration-200`}>
       
       {/* Container adapting to screen width: smartphone mockup on mobile/tablet, full-scale dashboard on desktop */}
-      <div className={`w-full max-w-md lg:max-w-5xl xl:max-w-6xl ${isDark ? 'bg-slate-950 border-slate-800/80 md:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8)]' : 'bg-white border-slate-200 md:shadow-[0_20px_50px_rgba(0,0,0,0.1)]'} md:rounded-[40px] overflow-hidden flex flex-col min-h-screen md:min-h-[850px] relative border transition-all duration-200`}>
+      <div className={`w-full max-w-md lg:max-w-none ${isDark ? 'bg-slate-950 border-slate-800/80 md:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.8)]' : 'bg-white border-slate-200 md:shadow-[0_20px_50px_rgba(0,0,0,0.1)]'} md:rounded-[40px] lg:rounded-none overflow-hidden flex flex-col min-h-screen lg:min-h-screen md:min-h-[850px] relative border lg:border-0 lg:shadow-none transition-all duration-200`}>
         
         {/* Smartphone top notched sensor strip for visual character, visible on medium mock viewports but hidden in desktop dashboard mode */}
         <div className={`hidden md:max-lg:flex justify-between items-center px-8 pt-3 pb-2 text-[11px] font-semibold ${isDark ? 'text-slate-500 bg-slate-950 border-slate-900' : 'text-slate-400 bg-slate-50 border-slate-150'} border-b select-none transition-colors duration-200`}>
@@ -1426,36 +1439,67 @@ export default function App() {
               )}
             </div>
 
-            {/* Scrolling pill row for easy mobile tapping Filter Category */}
-            <div className="overflow-x-auto scrollbar-none flex items-center gap-2 pb-1.5 pt-0.5 select-none -mx-4 px-4">
-              <span className="text-[10px] text-slate-500 uppercase font-bold flex-shrink-0">Service:</span>
+            {/* Scrolling pill row for easy mobile tapping Filter Category with navigation buttons */}
+            <div className="relative flex items-center -mx-4 px-4">
               <button
-                onClick={() => setSelectedCategory('All')}
-                className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all duration-150 flex-shrink-0 ${
-                  selectedCategory === 'All' 
-                    ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/10' 
-                    : isDark
-                      ? 'bg-slate-900 text-slate-400 hover:bg-slate-850 hover:text-white border border-slate-800'
-                      : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200'
+                type="button"
+                onClick={() => scrollCategory('left')}
+                className={`absolute left-5 z-10 w-7 h-7 rounded-full flex items-center justify-center border shadow-md transition-all focus:outline-none hover:scale-110 active:scale-95 ${
+                  isDark 
+                    ? 'bg-slate-900/90 border-slate-800 text-slate-300 hover:text-white' 
+                    : 'bg-white/95 border-slate-200 text-slate-600 hover:text-slate-900 shadow-sm'
                 }`}
+                aria-label="Scroll Left"
               >
-                All Services
+                <ChevronLeft className="w-3.5 h-3.5" />
               </button>
-              {categories.map((cat) => (
+
+              <div 
+                ref={categoryScrollRef}
+                className="overflow-x-auto scrollbar-none flex items-center gap-2 pb-1.5 pt-0.5 select-none w-full px-8 scroll-smooth"
+              >
+                <span className="text-[10px] text-slate-500 uppercase font-bold flex-shrink-0 mr-1">Service:</span>
                 <button
-                  key={cat}
-                  onClick={() => setSelectedCategory(cat)}
+                  onClick={() => setSelectedCategory('All')}
                   className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all duration-150 flex-shrink-0 ${
-                    selectedCategory === cat 
-                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/15' 
+                    selectedCategory === 'All' 
+                      ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/10' 
                       : isDark
                         ? 'bg-slate-900 text-slate-400 hover:bg-slate-850 hover:text-white border border-slate-800'
                         : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200'
                   }`}
                 >
-                  {cat}
+                  All Services
                 </button>
-              ))}
+                {categories.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
+                    className={`text-xs px-3 py-1.5 rounded-full font-medium transition-all duration-150 flex-shrink-0 ${
+                      selectedCategory === cat 
+                        ? 'bg-indigo-600 text-white shadow-md shadow-indigo-500/15' 
+                        : isDark
+                          ? 'bg-slate-900 text-slate-400 hover:bg-slate-850 hover:text-white border border-slate-800'
+                          : 'bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-slate-200'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => scrollCategory('right')}
+                className={`absolute right-5 z-10 w-7 h-7 rounded-full flex items-center justify-center border shadow-md transition-all focus:outline-none hover:scale-110 active:scale-95 ${
+                  isDark 
+                    ? 'bg-slate-900/90 border-slate-800 text-slate-300 hover:text-white' 
+                    : 'bg-white/95 border-slate-200 text-slate-600 hover:text-slate-900 shadow-sm'
+                }`}
+                aria-label="Scroll Right"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
             </div>
 
             {/* Detailed filter drawers with small selects */}
