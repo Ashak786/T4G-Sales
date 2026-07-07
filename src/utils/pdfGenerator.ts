@@ -503,7 +503,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   doc.save(fileName);
 }
 
-export async function generateMonthlySummaryPDF(sales: Sale[]): Promise<void> {
+async function buildMonthlySummaryPDFDocument(sales: Sale[]): Promise<{ doc: jsPDF; fileName: string }> {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -835,5 +835,16 @@ export async function generateMonthlySummaryPDF(sales: Sale[]): Promise<void> {
 
   // Save PDF
   const reportFileName = `Tech4Geeky_Summary_${prevMonthLabel.replace(/\s+/g, '_')}.pdf`;
-  doc.save(reportFileName);
+  return { doc, fileName: reportFileName };
+}
+
+export async function generateMonthlySummaryPDF(sales: Sale[]): Promise<void> {
+  const { doc, fileName } = await buildMonthlySummaryPDFDocument(sales);
+  doc.save(fileName);
+}
+
+export async function generateMonthlySummaryPDFBase64(sales: Sale[]): Promise<{ fileName: string; base64: string }> {
+  const { doc, fileName } = await buildMonthlySummaryPDFDocument(sales);
+  const base64 = (doc.output('base64' as any) as unknown) as string;
+  return { fileName, base64 };
 }
