@@ -439,9 +439,10 @@ async function fetchAppsScript(url: string, method: 'GET' | 'POST', body?: any):
         headers,
         body: body ? JSON.stringify(body) : undefined,
       });
-      if (response.status !== 404) {
+      if (response.ok) {
         return response;
       }
+      console.warn(`Proxy request returned non-OK status ${response.status}. Retrying via direct client fetch...`);
     }
   } catch (err) {
     console.warn('Backend proxy call failed, falling back to direct Apps Script call:', err);

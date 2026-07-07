@@ -389,9 +389,22 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   doc.setFont('Helvetica', 'normal');
   doc.text(`:  Due Date: 5 days from the date of this invoice.`, 32, noteY + 5.5);
 
+  // Divided by Client Name - Dynamic calculation of client cumulative total
+  const clientName = sale.client_name || '';
+  const clientSales = salesList.filter(s => s.client_name && s.client_name.trim().toLowerCase() === clientName.trim().toLowerCase());
+  const clientTotalIncome = clientSales.reduce((sum, s) => sum + s.amount, 0);
+  const clientSalesCount = clientSales.length;
+
+  const dividedByClientY = noteY + 8;
+  doc.rect(startX, dividedByClientY, endX - startX, 8);
+  doc.setFont('Helvetica', 'bold');
+  doc.text(`Divided by Client Name`, 18, dividedByClientY + 5.5);
+  doc.setFont('Helvetica', 'normal');
+  doc.text(`:  ${formatRupees(clientTotalIncome)} (Total money received from this person across ${clientSalesCount} transactions)`, 56, dividedByClientY + 5.5);
+
 
   // --- 7. PAYMENT DETAILS & DYNAMIC UPI QR CODE BANNER ---
-  const paymentBlockY = noteY + 12;
+  const paymentBlockY = dividedByClientY + 12;
   // Outer Box
   doc.rect(15, paymentBlockY, 180, 52);
 
@@ -490,7 +503,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   doc.save(fileName);
 }
 
-async function buildMonthlySummaryPDFDoc(sales: Sale[]): Promise<{ doc: jsPDF; reportFileName: string }> {
+export async function generateMonthlySummaryPDF(sales: Sale[]): Promise<void> {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -721,6 +734,86 @@ async function buildMonthlySummaryPDFDoc(sales: Sale[]): Promise<{ doc: jsPDF; r
     });
   }
 
+  // --- 6. DIVIDED BY CLIENT NAME ---
+  y += 8;
+  if (y > 250) {
+    doc.addPage();
+    y = 20;
+  }
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(navyColor[0], navyColor[1], navyColor[2]);
+  doc.text('III. DIVIDED BY CLIENT NAME', 15, y);
+
+  y += 4;
+  // Table Header
+  doc.setFillColor(navyColor[0], navyColor[1], navyColor[2]);
+  doc.rect(15, y, 180, 7.5, 'F');
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text('Client Name', 18, y + 5);
+  doc.text('Invoices Count', 110, y + 5, { align: 'right' });
+  doc.text('Total Money Received', 190, y + 5, { align: 'right' });
+
+  y += 7.5;
+
+  const clientSummaryMap = new Map<string, { name: string; count: number; total: number }>();
+  prevMonthSales.forEach(s => {
+    const name = s.client_name || 'N/A';
+    const key = name.trim().toLowerCase();
+    const existing = clientSummaryMap.get(key);
+    if (existing) {
+      existing.count += 1;
+      existing.total += s.amount;
+    } else {
+      clientSummaryMap.set(key, { name, count: 1, total: s.amount });
+    }
+  });
+  const clientSummaryList = Array.from(clientSummaryMap.values()).sort((a, b) => b.total - a.total);
+
+  if (clientSummaryList.length === 0) {
+    doc.setFillColor(255, 255, 255);
+    doc.rect(15, y, 180, 10, 'F');
+    doc.setTextColor(120, 120, 120);
+    doc.setFont('Helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.text('No transaction records found for this period.', 105, y + 6.5, { align: 'center' });
+    y += 10;
+  } else {
+    clientSummaryList.forEach((c, idx) => {
+      // Check page overflow
+      if (y > 265) {
+        doc.addPage();
+        y = 20;
+        // Draw top border/line
+        doc.setDrawColor(borderGrey[0], borderGrey[1], borderGrey[2]);
+        doc.line(15, y, 195, y);
+        y += 5;
+      }
+
+      if (idx % 2 === 0) {
+        doc.setFillColor(255, 255, 255);
+      } else {
+        doc.setFillColor(248, 250, 252);
+      }
+      doc.rect(15, y, 180, 7.5, 'F');
+      doc.setDrawColor(235, 238, 242);
+      doc.line(15, y + 7.5, 195, y + 7.5);
+
+      doc.setTextColor(50, 50, 50);
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(8.5);
+      doc.text(c.name, 18, y + 5);
+      doc.text(String(c.count), 110, y + 5, { align: 'right' });
+      doc.setFont('Helvetica', 'bold');
+      doc.text(formatRupees(c.total), 190, y + 5, { align: 'right' });
+
+      y += 7.5;
+    });
+  }
+
   // Draw final footer boundary
   if (y > 270) {
     doc.addPage();
@@ -740,19 +833,7 @@ async function buildMonthlySummaryPDFDoc(sales: Sale[]): Promise<{ doc: jsPDF; r
   doc.setTextColor(navyColor[0], navyColor[1], navyColor[2]);
   doc.text('Tech4Geeky Systems Representative', 195, footerY + 5, { align: 'right' });
 
+  // Save PDF
   const reportFileName = `Tech4Geeky_Summary_${prevMonthLabel.replace(/\s+/g, '_')}.pdf`;
-  return { doc, reportFileName };
-}
-
-export async function generateMonthlySummaryPDF(sales: Sale[]): Promise<void> {
-  const { doc, reportFileName } = await buildMonthlySummaryPDFDoc(sales);
   doc.save(reportFileName);
-}
-
-export async function generateMonthlySummaryPDFBase64(sales: Sale[]): Promise<{ fileName: string; base64: string }> {
-  const { doc, reportFileName } = await buildMonthlySummaryPDFDoc(sales);
-  return {
-    fileName: reportFileName,
-    base64: doc.output('datauristring').split(',')[1]
-  };
 }
