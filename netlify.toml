@@ -1,0 +1,29 @@
+[build]
+  command = "vite build"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+
+[[redirects]]
+  from = "/api/monthly-summary/cache"
+  to = "/.netlify/functions/monthly-summary"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/monthly-summary.pdf"
+  to = "/.netlify/functions/monthly-summary"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/sales"
+  to = "/.netlify/functions/sales"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

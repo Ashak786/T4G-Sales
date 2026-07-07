@@ -1446,48 +1446,6 @@ export default function App() {
             </div>
           </section>
 
-          {/* Divided by Client Name Section */}
-          <section className={`p-4 rounded-2xl border transition-colors duration-200 ${isDark ? 'bg-slate-900/60 border-slate-800 space-y-4' : 'bg-slate-50 border-slate-200/80 space-y-4 shadow-3xs'}`}>
-            <div className="flex items-center justify-between">
-              <h3 className={`text-xs font-black tracking-wider ${isDark ? 'text-slate-300' : 'text-slate-700'} uppercase flex items-center gap-1.5`}>
-                <User className="w-4 h-4 text-indigo-500" />
-                Divided by Client Name
-              </h3>
-            </div>
-
-            <div className="space-y-3 max-h-56 overflow-y-auto pr-1 scrollbar-thin">
-              {(() => {
-                // Group all sales by client name and sort descending by total received
-                const clientSums: { [name: string]: number } = {};
-                sales.forEach(s => {
-                  const name = s.client_name || 'N/A';
-                  clientSums[name] = (clientSums[name] || 0) + s.amount;
-                });
-                const sortedClients = Object.entries(clientSums)
-                  .map(([name, total]) => ({ name, total }))
-                  .sort((a, b) => b.total - a.total);
-
-                if (sortedClients.length === 0) {
-                  return <p className="text-[11px] text-slate-500 italic">No client records found.</p>;
-                }
-
-                return sortedClients.map(({ name, total }) => (
-                  <div key={name} className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <div className={`p-1.5 rounded-lg border ${isDark ? 'bg-slate-850 border-slate-800 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
-                        <User className="w-3.5 h-3.5" />
-                      </div>
-                      <span className={`font-semibold truncate max-w-[150px] ${isDark ? 'text-slate-200' : 'text-slate-700'}`} title={name}>{name}</span>
-                    </div>
-                    <div className="text-right">
-                      <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                  </div>
-                ));
-              })()}
-            </div>
-          </section>
-
           {/* Information Notice explaining the setup capability */}
           {!googleToken && (
             <section className={`p-3.5 rounded-xl border space-y-1 transition-all duration-250 ${
