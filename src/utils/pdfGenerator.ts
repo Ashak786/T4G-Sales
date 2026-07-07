@@ -845,6 +845,6 @@ export async function generateMonthlySummaryPDF(sales: Sale[]): Promise<void> {
 
 export async function generateMonthlySummaryPDFBase64(sales: Sale[]): Promise<{ fileName: string; base64: string }> {
   const { doc, fileName } = await buildMonthlySummaryPDFDocument(sales);
-  const base64 = (doc.output('base64' as any) as unknown) as string;
+  const base64 = doc.output('datauristring').split(',').pop() as string;
   return { fileName, base64 };
 }
