@@ -20,6 +20,7 @@ provider.addScope('https://www.googleapis.com/auth/drive.file');
 provider.addScope('https://www.googleapis.com/auth/spreadsheets');
 
 let isSigningIn = false;
+let isSpreadsheetVerified = false;
 const SPREADSHEET_ID_CACHE_KEY = 'tech4geeky_google_sheet_id';
 const GOOGLE_ACCESS_TOKEN_KEY = 'tech4geeky_google_access_token';
 export const APPS_SCRIPT_URL_KEY = 'tech4geeky_apps_script_url';
@@ -220,6 +221,10 @@ async function getOrCreateSpreadsheet(token: string): Promise<string> {
   // Force cache to match this ID
   localStorage.setItem(SPREADSHEET_ID_CACHE_KEY, targetId);
 
+  if (isSpreadsheetVerified) {
+    return targetId;
+  }
+
   // Verify sheet existence and ensure 'SalesList' page is configured
   try {
     const checkRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetId}`, {
@@ -270,6 +275,7 @@ async function getOrCreateSpreadsheet(token: string): Promise<string> {
         })
       });
 
+      isSpreadsheetVerified = true;
     } else {
       if (checkRes.status === 401 || checkRes.status === 403) {
         const errData = await checkRes.json().catch(() => ({}));

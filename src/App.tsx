@@ -170,8 +170,8 @@ export default function App() {
   const [isConfirmingDelete, setIsConfirmingDelete] = useState<boolean>(false);
 
   // Sales State
-  const [sales, setSales] = useState<Sale[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [sales, setSales] = useState<Sale[]>(() => getLocalSales());
+  const [loading, setLoading] = useState<boolean>(() => getLocalSales().length === 0);
   const [syncing, setSyncing] = useState<boolean>(false);
   const [dbSource, setDbSource] = useState<'sheets' | 'local'>('local');
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -450,11 +450,19 @@ export default function App() {
 
   // Load Sales initially
   const loadData = async (activeToken?: string | null) => {
-    setLoading(true);
     setErrorMessage('');
     const curToken = activeToken !== undefined ? activeToken : googleToken;
+    
+    // If we have no sales, show the loading spinner. Otherwise, run silently in the background (SWR)
+    if (sales.length === 0) {
+      setLoading(true);
+    }
+    
     try {
       if (curToken) {
+        // Optimistically set dbSource so indicators show correct mode
+        setDbSource('sheets');
+        
         let sheetsSales = await fetchSheetsSales(curToken);
         if (sheetsSales.length === 0) {
           // If sheets is empty, automatically seed it with default seed database
@@ -462,7 +470,6 @@ export default function App() {
           sheetsSales = await fetchSheetsSales(curToken);
         }
         setSales(sheetsSales);
-        setDbSource('sheets');
         saveLocalSales(sheetsSales);
         updateSyncedTime();
       } else {
