@@ -1069,7 +1069,7 @@ export default function App() {
           </div>
 
           {/* Database Connection Status Bar */}
-          <div className={`mt-3.5 flex items-center justify-between text-xs px-3.5 py-2.5 rounded-xl border transition-all duration-200 ${
+          <div className={`mt-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs px-3.5 py-2.5 rounded-xl border transition-all duration-200 ${
             dbSource === 'sheets'
               ? isDark 
                 ? 'bg-slate-900/40 border-emerald-500/20 text-slate-300' 
@@ -1078,24 +1078,24 @@ export default function App() {
                 ? 'bg-slate-900/30 border-slate-800 text-slate-400'
                 : 'bg-slate-50 border-slate-205 text-slate-600'
           }`}>
-            <div className="flex flex-col gap-0.5">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-0.5 w-full sm:w-auto">
+              <div className="flex items-center gap-2 flex-wrap">
                 {dbSource === 'sheets' ? (
                   <>
-                    <span className="relative flex h-2 w-2">
+                    <span className="relative flex h-2 w-2 flex-shrink-0">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                     </span>
                     <span className={`font-semibold tracking-wide ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>Google Sheets Connected</span>
                     {syncFrequency !== 'manual' && (
-                      <span className="text-[9px] bg-slate-800 text-cyan-400 px-1.5 py-0.5 rounded-md font-mono font-medium">
+                      <span className="text-[9px] bg-slate-800 text-cyan-400 px-1.5 py-0.5 rounded-md font-mono font-medium flex-shrink-0">
                         Auto {syncFrequency}m
                       </span>
                     )}
                   </>
                 ) : (
                   <>
-                    <span className="h-2 w-2 rounded-full bg-amber-500"></span>
+                    <span className="h-2 w-2 rounded-full bg-amber-500 flex-shrink-0"></span>
                     <span className={`font-medium tracking-wide ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Local Space (Offline Sandbox)</span>
                   </>
                 )}
@@ -1111,7 +1111,7 @@ export default function App() {
               <button 
                 onClick={handleSyncButton}
                 disabled={syncing}
-                className={`text-[10px] px-3 py-1 rounded-lg font-bold transition-all border flex items-center gap-1.5 active:scale-95 cursor-pointer ${
+                className={`text-[10px] px-3 py-1 rounded-lg font-bold transition-all border flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer w-full sm:w-auto ${
                   isDark 
                     ? 'bg-emerald-950/85 hover:bg-emerald-900 text-emerald-400 border-emerald-850/60 hover:border-emerald-700/60' 
                     : 'bg-emerald-600 hover:bg-emerald-700 text-white border-transparent shadow-xs'
@@ -1123,7 +1123,7 @@ export default function App() {
             ) : (
               <button 
                 onClick={() => setIsSettingsOpen(true)}
-                className={`text-[10px] px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer border ${
+                className={`text-[10px] px-3 py-1 rounded-lg font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer border w-full sm:w-auto ${
                   isDark 
                     ? 'bg-slate-850 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700' 
                     : 'bg-indigo-600 hover:bg-indigo-700 text-white border-transparent shadow-xs'
