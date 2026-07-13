@@ -389,22 +389,8 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   doc.setFont('Helvetica', 'normal');
   doc.text(`:  Due Date: 5 days from the date of this invoice.`, 32, noteY + 5.5);
 
-  // Divided by Client Name - Dynamic calculation of client cumulative total
-  const clientName = sale.client_name || '';
-  const clientSales = salesList.filter(s => s.client_name && s.client_name.trim().toLowerCase() === clientName.trim().toLowerCase());
-  const clientTotalIncome = clientSales.reduce((sum, s) => sum + s.amount, 0);
-  const clientSalesCount = clientSales.length;
-
-  const dividedByClientY = noteY + 8;
-  doc.rect(startX, dividedByClientY, endX - startX, 8);
-  doc.setFont('Helvetica', 'bold');
-  doc.text(`Divided by Client Name`, 18, dividedByClientY + 5.5);
-  doc.setFont('Helvetica', 'normal');
-  doc.text(`:  ${formatRupees(clientTotalIncome)} (Total money received from this person across ${clientSalesCount} transactions)`, 56, dividedByClientY + 5.5);
-
-
   // --- 7. PAYMENT DETAILS & DYNAMIC UPI QR CODE BANNER ---
-  const paymentBlockY = dividedByClientY + 12;
+  const paymentBlockY = noteY + 12;
   // Outer Box
   doc.rect(15, paymentBlockY, 180, 52);
 
@@ -435,8 +421,17 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   doc.setTextColor(0, 0, 0);
   doc.setFont('Helvetica', 'bold');
   doc.text('UPI ID:', 20, detailsOffset + 12);
-  doc.setTextColor(navyColor[0], navyColor[1], navyColor[2]);
+  doc.setTextColor(0, 102, 204); // Blue hyperlink color
   doc.text('ajaykumar6405-4@okicici', 48, detailsOffset + 12);
+  
+  // Underline the UPI ID in Payment Details
+  const upiWidthInDetails = doc.getTextWidth('ajaykumar6405-4@okicici');
+  doc.setDrawColor(0, 102, 204);
+  doc.setLineWidth(0.2);
+  doc.line(48, detailsOffset + 12 + 0.4, 48 + upiWidthInDetails, detailsOffset + 12 + 0.4);
+  
+  // Make active clickable hyperlink on the UPI ID in Payment Details
+  doc.link(48, detailsOffset + 12 - 3.5, upiWidthInDetails, 4.5, { url: upiUrl });
 
   doc.setTextColor(120, 120, 120);
   doc.setFont('Helvetica', 'italic');
@@ -447,27 +442,30 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   doc.setDrawColor(borderGrey[0], borderGrey[1], borderGrey[2]);
   doc.line(135, paymentBlockY, 135, paymentBlockY + 52); // Splitter line
 
+  const qrSize = 42;
+  const qrX = 135 + (60 - qrSize) / 2; // Center horizontally in the 60-unit wide right section
+  const qrY = paymentBlockY + (52 - qrSize) / 2; // Center vertically in the 52-unit high box
+
   if (qrBase64) {
     // Render working QR Code dynamically fetched from standard QR API
-    doc.addImage(qrBase64, 'PNG', 145, paymentBlockY + 4, 38, 38);
-    doc.setTextColor(navyColor[0], navyColor[1], navyColor[2]);
-    doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.text('Scan & Pay via UPI', 164, paymentBlockY + 47, { align: 'center' });
+    doc.addImage(qrBase64, 'PNG', qrX, qrY, qrSize, qrSize);
+    // Make the QR code image clickable as well
+    doc.link(qrX, qrY, qrSize, qrSize, { url: upiUrl });
   } else {
     // If offline/API fails, show a beautiful visual QR code placeholder
     doc.setFillColor(lightGrayBg[0], lightGrayBg[1], lightGrayBg[2]);
-    doc.rect(145, paymentBlockY + 4, 38, 38, 'F');
+    doc.rect(qrX, qrY, qrSize, qrSize, 'F');
     doc.setDrawColor(borderGrey[0], borderGrey[1], borderGrey[2]);
-    doc.rect(145, paymentBlockY + 4, 38, 38, 'S');
+    doc.rect(qrX, qrY, qrSize, qrSize, 'S');
     doc.setTextColor(100, 100, 100);
-    doc.setFontSize(8);
+    doc.setFontSize(8.5);
     doc.setFont('Helvetica', 'normal');
-    doc.text('[UPI QR Code]', 164, paymentBlockY + 20, { align: 'center' });
-    doc.text('ajaykumar6405-4@okicici', 164, paymentBlockY + 25, { align: 'center' });
-    doc.setTextColor(navyColor[0], navyColor[1], navyColor[2]);
-    doc.setFont('Helvetica', 'bold');
-    doc.text('Scan & Pay via UPI', 164, paymentBlockY + 47, { align: 'center' });
+    doc.text('[UPI QR Code]', qrX + qrSize / 2, qrY + qrSize / 2 - 2, { align: 'center' });
+    doc.setFontSize(7.5);
+    doc.text('ajaykumar6405-4@okicici', qrX + qrSize / 2, qrY + qrSize / 2 + 4, { align: 'center' });
+    
+    // Make active clickable hyperlink on the QR area
+    doc.link(qrX, qrY, qrSize, qrSize, { url: upiUrl });
   }
 
 

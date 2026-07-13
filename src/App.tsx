@@ -1850,12 +1850,12 @@ export default function App() {
 
         {/* 1. VIEW SALES DETAILS COMPONENT */}
         {isDetailsOpen && activeSale && (
-          <div className={`absolute bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-md lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[90%] flex flex-col transition-all duration-300 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-2xl'}`}>
+          <div className={`absolute bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-md lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[90%] flex flex-col overflow-hidden transition-all duration-300 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-2xl'}`}>
             {/* Grab Bar Header */}
             <div className={`w-12 h-1.5 rounded-full mx-auto my-3 flex-shrink-0 ${isDark ? 'bg-slate-700/80' : 'bg-slate-300'}`} />
             
             {/* Context Header */}
-            <div className={`px-5 pb-3 border-b flex items-center justify-between ${isDark ? 'border-slate-850' : 'border-slate-100'}`}>
+            <div className={`px-5 pb-3 border-b flex items-center justify-between flex-shrink-0 ${isDark ? 'border-slate-850' : 'border-slate-100'}`}>
               <span className={`text-xs font-black uppercase tracking-widest ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Sale Details</span>
               <button 
                 onClick={() => setIsDetailsOpen(false)}
@@ -1865,8 +1865,8 @@ export default function App() {
               </button>
             </div>
 
-            {/* Content List */}
-            <div className="overflow-y-auto p-5 space-y-4 text-xs font-medium">
+            {/* Content List - Scrollable details part */}
+            <div className="overflow-y-auto p-5 pb-3 space-y-4 text-xs font-medium flex-grow min-h-0">
               <div className={`flex items-center gap-3 p-4 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-850' : 'bg-slate-50 border-slate-150 shadow-3xs'}`}>
                 <div className={`p-2.5 rounded-xl ${getCategoryConfig(activeSale.category).bg}`}>
                   {(() => {
@@ -1901,28 +1901,24 @@ export default function App() {
                   <span className="text-slate-500">METHOD</span>
                   <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-905'}`}>{activeSale.payment_method}</span>
                 </div>
-
-                <div className="flex justify-between border-t border-dashed pt-2.5 mt-2.5">
-                  <span className="text-slate-500 uppercase font-bold text-[10px] tracking-wider">Divided by Client Name</span>
-                  <span className={`font-black ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
-                    ₹{(() => {
-                      const clientSales = sales.filter(s => s.client_name && s.client_name.trim().toLowerCase() === activeSale.client_name.trim().toLowerCase());
-                      const total = clientSales.reduce((sum, s) => sum + s.amount, 0);
-                      return total.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                    })()}
-                  </span>
-                </div>
               </div>
 
               {activeSale.description && (
-                <div className="space-y-1">
+                <div className="space-y-1 pb-2">
                   <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Description Notes</span>
                   <p className={`p-3 rounded-xl leading-relaxed text-xs border whitespace-pre-wrap ${isDark ? 'bg-slate-950 text-slate-300 border-slate-850' : 'bg-slate-50 text-slate-700 border-slate-200/85'}`}>
                     {activeSale.description}
                   </p>
                 </div>
               )}
+            </div>
 
+            {/* Pinned Action Operations Footer */}
+            <div className={`p-5 pt-3.5 border-t flex flex-col gap-3.5 flex-shrink-0 ${
+              isDark 
+                ? 'border-slate-850 bg-slate-950/40 backdrop-blur-md rounded-b-[32px]' 
+                : 'border-slate-100 bg-slate-50/90 backdrop-blur-md rounded-b-[32px]'
+            }`}>
               {/* Generate PDF Invoice Button */}
               {!isConfirmingDelete && (
                 <button
@@ -1941,16 +1937,16 @@ export default function App() {
 
               {/* Action Operations Grid */}
               {!isConfirmingDelete ? (
-                <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="grid grid-cols-2 gap-3">
                   <button
                     onClick={() => {
                       setIsDetailsOpen(false);
                       openEditModal(activeSale);
                     }}
-                    className={`py-3 font-bold rounded-xl flex items-center justify-center gap-1.5 border transition ${
+                    className={`py-3 font-bold rounded-xl flex items-center justify-center gap-1.5 border transition cursor-pointer ${
                       isDark 
-                        ? 'bg-slate-800 hover:bg-slate-705 text-slate-100 border-slate-700' 
-                        : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200 shadow-3xs'
+                        ? 'bg-slate-800 hover:bg-slate-700 text-slate-100 border-slate-700' 
+                        : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200 shadow-3xs'
                     }`}
                   >
                     <Edit className="w-4 h-4" />
@@ -1958,15 +1954,15 @@ export default function App() {
                   </button>
                   <button
                     onClick={() => setIsConfirmingDelete(true)}
-                    className="py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl flex items-center justify-center gap-1.5 transition shadow-xs"
+                    className="py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl flex items-center justify-center gap-1.5 transition shadow-xs cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />
                     Delete Receipt
                   </button>
                 </div>
               ) : (
-                <div className={`border rounded-2xl p-4 space-y-3.5 mt-2 transition-colors ${
-                  isDark ? 'bg-rose-950/20 border-rose-500/20' : 'bg-rose-50 border-rose-200'
+                <div className={`border rounded-2xl p-4 space-y-3.5 transition-colors ${
+                  isDark ? 'bg-rose-950/20 border-rose-500/20' : 'bg-rose-50/50 border-rose-200'
                 }`}>
                   <div className="flex items-center gap-2 text-rose-500 font-bold text-xs">
                     <AlertTriangle className="w-4 h-4 flex-shrink-0" />
@@ -1979,10 +1975,10 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => setIsConfirmingDelete(false)}
-                      className={`py-2 text-[11px] font-bold rounded-lg border transition ${
+                      className={`py-2 text-[11px] font-bold rounded-lg border transition cursor-pointer ${
                         isDark 
                           ? 'bg-slate-850 hover:bg-slate-800 text-slate-300 border-slate-700' 
-                          : 'bg-slate-100 hover:bg-slate-205 text-slate-700 border-slate-200'
+                          : 'bg-white hover:bg-slate-105 text-slate-700 border-slate-200'
                       }`}
                     >
                       No, Keep It
@@ -1990,7 +1986,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={() => handleDeleteSale(activeSale.id)}
-                      className="py-2 bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold rounded-lg shadow-sm transition"
+                      className="py-2 bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold rounded-lg shadow-sm transition cursor-pointer"
                     >
                       Yes, Delete Statement
                     </button>
@@ -2019,7 +2015,8 @@ export default function App() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateSale} className="flex-1 overflow-y-auto p-5 space-y-4">
+            <form onSubmit={handleCreateSale} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
               
               {/* Category picker pills inside form */}
               <div className="space-y-1.5">
@@ -2326,8 +2323,14 @@ export default function App() {
                 />
               </div>
 
-              {/* Action Operations */}
-              <div className="pt-2">
+              </div>
+
+              {/* Action Operations Footer - Pinned to the bottom */}
+              <div className={`p-5 border-t flex-shrink-0 ${
+                isDark 
+                  ? 'border-slate-850 bg-slate-950/40 backdrop-blur-md rounded-b-[32px]' 
+                  : 'border-slate-100 bg-slate-50/90 backdrop-blur-md rounded-b-[32px]'
+              }`}>
                 <button
                   type="submit"
                   className="w-full py-3 bg-gradient-to-tr from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 rounded-xl text-white font-black text-xs uppercase tracking-wider transition shadow-lg shadow-indigo-950/40 cursor-pointer"
@@ -2335,7 +2338,6 @@ export default function App() {
                   Confirm &amp; Log Sale
                 </button>
               </div>
-
             </form>
           </div>
         )}
@@ -2361,7 +2363,8 @@ export default function App() {
               </button>
             </div>
 
-            <form onSubmit={handleUpdateSale} className="flex-1 overflow-y-auto p-5 space-y-4">
+            <form onSubmit={handleUpdateSale} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
               
               {/* Category selector */}
               <div className="space-y-1.5">
@@ -2666,7 +2669,14 @@ export default function App() {
                 />
               </div>
 
-              <div className="pt-2">
+              </div>
+
+              {/* Action Operations Footer - Pinned to the bottom */}
+              <div className={`p-5 border-t flex-shrink-0 ${
+                isDark 
+                  ? 'border-slate-850 bg-slate-950/40 backdrop-blur-md rounded-b-[32px]' 
+                  : 'border-slate-100 bg-slate-50/90 backdrop-blur-md rounded-b-[32px]'
+              }`}>
                 <button
                   type="submit"
                   className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-white font-black text-xs uppercase tracking-wider transition shadow-lg shadow-emerald-950/20 cursor-pointer"
@@ -2674,7 +2684,6 @@ export default function App() {
                   Save Changes
                 </button>
               </div>
-
             </form>
           </div>
         )}
@@ -2928,60 +2937,6 @@ function doPost(e) {
                       </div>
                     </div>
                   </details>
-                </div>
-              </div>
-
-              {/* Target Spreadsheet Configuration */}
-              <div className="p-4 bg-slate-950 rounded-xl border border-slate-850 space-y-3">
-                <div className="space-y-2">
-                  <label className="text-[10px] uppercase text-slate-500 font-bold tracking-wider block">
-                    Target Google Sheet ID / Link
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={sheetInput}
-                      onChange={(e) => setSheetInput(e.target.value)}
-                      placeholder="Paste sheet URL or spreadsheet ID"
-                      className="flex-1 bg-slate-900 border border-slate-800 text-xs px-3 py-2 rounded-lg text-slate-300 focus:outline-none focus:border-indigo-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!sheetInput.trim()) {
-                          alert('Please enter a valid Google Sheet URL or ID.');
-                          return;
-                        }
-                        const updatedId = setSpreadsheetId(sheetInput);
-                        setSheetInput(updatedId);
-                        
-                        if (googleToken) {
-                          setLoading(true);
-                          try {
-                            await loadData(googleToken);
-                            alert('Google Sheet database target updated and reloaded!');
-                          } catch (err: any) {
-                            if (!handleAuthError(err)) {
-                              alert('Failed to reload data: ' + err.message);
-                            }
-                          } finally {
-                            setLoading(false);
-                          }
-                        } else {
-                          alert('Sheet configuration saved! Sign in to Google Workspace to read and write records.');
-                        }
-                      }}
-                      className="px-3 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white font-bold transition flex items-center justify-center cursor-pointer text-[11px]"
-                    >
-                      Apply
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-slate-400 leading-normal">
-                    Active Sheet ID: <code className="text-cyan-400 bg-slate-900 px-1.5 py-0.5 rounded font-mono break-all">{localStorage.getItem('tech4geeky_google_sheet_id') || '1yE9_IElbygv0tMCTLS7en-HsdxigwQKk'}</code>
-                  </p>
-                  <p className="text-[9.5px] text-slate-555 leading-relaxed">
-                    If missing, we will automatically set up a sub-sheet tab named <b className="text-slate-400">"SalesList"</b>, configure tracking columns, and keep it synchronized.
-                  </p>
                 </div>
               </div>
 
