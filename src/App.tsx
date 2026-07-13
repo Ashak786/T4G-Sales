@@ -1169,7 +1169,10 @@ export default function App() {
                       <Activity className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
                       REVENUE TICKER INDEX
                     </span>
-                    <span className={`h-1.5 w-1.5 rounded-full ${isDark ? 'bg-emerald-400' : 'bg-emerald-500'} animate-ping`} />
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isDark ? 'bg-emerald-400' : 'bg-emerald-500'}`}></span>
+                      <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${isDark ? 'bg-emerald-400' : 'bg-emerald-500'}`}></span>
+                    </span>
                   </div>
                   
                   {/* Dynamic Interactive Value */}
@@ -1348,9 +1351,21 @@ export default function App() {
                                 cy={hp.y} 
                                 r={8} 
                                 fill={upColor} 
-                                opacity={0.3} 
-                                className="animate-ping" 
-                              />
+                                opacity={0.3}
+                              >
+                                <animate 
+                                  attributeName="r" 
+                                  values="4;12;4" 
+                                  dur="1.5s" 
+                                  repeatCount="indefinite" 
+                                />
+                                <animate 
+                                  attributeName="opacity" 
+                                  values="0.6;0;0.6" 
+                                  dur="1.5s" 
+                                  repeatCount="indefinite" 
+                                />
+                              </circle>
                               <circle 
                                 cx={hp.x} 
                                 cy={hp.y} 
@@ -1375,9 +1390,21 @@ export default function App() {
                                 cy={lp.y} 
                                 r={7} 
                                 fill={liveColor} 
-                                opacity={0.3} 
-                                className="animate-pulse" 
-                              />
+                                opacity={0.3}
+                              >
+                                <animate 
+                                  attributeName="r" 
+                                  values="3.5;10;3.5" 
+                                  dur="2s" 
+                                  repeatCount="indefinite" 
+                                />
+                                <animate 
+                                  attributeName="opacity" 
+                                  values="0.5;0;0.5" 
+                                  dur="2s" 
+                                  repeatCount="indefinite" 
+                                />
+                              </circle>
                               <circle 
                                 cx={lp.x} 
                                 cy={lp.y} 
@@ -1401,9 +1428,14 @@ export default function App() {
                               width={sliceW}
                               height={180}
                               fill="transparent"
-                              className="cursor-crosshair"
-                              onMouseEnter={() => setHoveredIndex(idx)}
-                              onMouseLeave={() => setHoveredIndex(null)}
+                              className="cursor-crosshair select-none"
+                              style={{ pointerEvents: 'auto' }}
+                              onPointerOver={() => setHoveredIndex(idx)}
+                              onPointerLeave={() => setHoveredIndex(null)}
+                              onPointerDown={(e) => {
+                                e.preventDefault();
+                                setHoveredIndex(idx);
+                              }}
                             />
                           );
                         })}
