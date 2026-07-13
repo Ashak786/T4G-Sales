@@ -10,6 +10,7 @@ export interface Sale {
   invoice_no?: string;
   payment_method: 'Cash' | 'UPI/Online' | 'Card' | 'Bank Transfer';
   description?: string;
+  payment_status?: 'Received' | 'Pending';
 }
 
 const LOCAL_STORAGE_KEY = 'tech4geeky_sales_data';
@@ -25,7 +26,8 @@ export const DEFAULT_SEED_SALES: Sale[] = [
     client_phone: "",
     amount: 1000,
     payment_method: "UPI/Online",
-    description: "Laptop Service"
+    description: "Laptop Service",
+    payment_status: "Pending"
   },
   {
     id: "9722361b-9a4f-4d9c-bd24-0026e6f0b402",
@@ -37,7 +39,8 @@ export const DEFAULT_SEED_SALES: Sale[] = [
     client_phone: "",
     amount: 500,
     payment_method: "UPI/Online",
-    description: "Long Video"
+    description: "Long Video",
+    payment_status: "Received"
   },
   {
     id: "6e2cc76b-9689-4e08-9df2-9b2447ff69df",
@@ -49,7 +52,8 @@ export const DEFAULT_SEED_SALES: Sale[] = [
     client_phone: "",
     amount: 1470,
     payment_method: "UPI/Online",
-    description: "Dec 25 O.S + Long Video"
+    description: "Dec 25 O.S + Long Video",
+    payment_status: "Received"
   },
   {
     id: "d974e64f-2cc8-4a55-8ee7-84a2cbff497e",
@@ -61,7 +65,8 @@ export const DEFAULT_SEED_SALES: Sale[] = [
     client_phone: "",
     amount: 1500,
     payment_method: "UPI/Online",
-    description: "Logo + Flyer"
+    description: "Logo + Flyer",
+    payment_status: "Received"
   },
   {
     id: "2768d76e-3651-40be-bd6f-f06b9b1ee65b",
@@ -73,7 +78,8 @@ export const DEFAULT_SEED_SALES: Sale[] = [
     client_phone: "",
     amount: 380,
     payment_method: "UPI/Online",
-    description: "Baby Vlog"
+    description: "Baby Vlog",
+    payment_status: "Pending"
   },
   {
     id: "a3ee7f9b-6b2a-43d9-a764-f6eb80a13ee1",
@@ -85,7 +91,8 @@ export const DEFAULT_SEED_SALES: Sale[] = [
     client_phone: "",
     amount: 914,
     payment_method: "UPI/Online",
-    description: "Multi"
+    description: "Multi",
+    payment_status: "Received"
   },
   {
     id: "be935ef7-0efc-4e8c-8c03-51bf7316713c",
@@ -97,7 +104,8 @@ export const DEFAULT_SEED_SALES: Sale[] = [
     client_phone: "",
     amount: 3025,
     payment_method: "UPI/Online",
-    description: "Marriage Certificate"
+    description: "Marriage Certificate",
+    payment_status: "Received"
   },
   {
     id: "c469b72a-6091-4da2-a39c-eb21e053a992",
@@ -109,7 +117,8 @@ export const DEFAULT_SEED_SALES: Sale[] = [
     client_phone: "",
     amount: 1000,
     payment_method: "UPI/Online",
-    description: "Laptop Service"
+    description: "Laptop Service",
+    payment_status: "Pending"
   }
 ];
 

@@ -250,6 +250,7 @@ export default function App() {
     amount: string;
     payment_method: 'Cash' | 'UPI/Online' | 'Bank Transfer';
     description: string;
+    payment_status: 'Received' | 'Pending';
   }>({
     sale_date: new Date().toISOString().split('T')[0],
     category: 'Video editing',
@@ -258,7 +259,8 @@ export default function App() {
     client_phone: '',
     amount: '',
     payment_method: 'UPI/Online',
-    description: ''
+    description: '',
+    payment_status: 'Received'
   });
 
   const [showAddSuggestions, setShowAddSuggestions] = useState<boolean>(false);
@@ -672,7 +674,8 @@ export default function App() {
       client_phone: formData.client_phone.trim() || undefined,
       amount: Number(formData.amount),
       payment_method: formData.payment_method,
-      description: formData.description.trim() || undefined
+      description: formData.description.trim() || undefined,
+      payment_status: formData.payment_status
     };
 
     // 1. Generate local optimistic sale item with a temporary ID
@@ -700,7 +703,8 @@ export default function App() {
       client_phone: '',
       amount: '',
       payment_method: 'UPI/Online',
-      description: ''
+      description: '',
+      payment_status: 'Received'
     });
 
     // 4. Sync to Google Sheets in the background if connected
@@ -737,7 +741,8 @@ export default function App() {
       client_phone: sale.client_phone || '',
       amount: String(sale.amount),
       payment_method: sale.payment_method,
-      description: sale.description || ''
+      description: sale.description || '',
+      payment_status: sale.payment_status || 'Received'
     });
     setIsEditOpen(true);
   };
@@ -760,7 +765,8 @@ export default function App() {
       client_phone: formData.client_phone.trim() || undefined,
       amount: Number(formData.amount),
       payment_method: formData.payment_method,
-      description: formData.description.trim() || undefined
+      description: formData.description.trim() || undefined,
+      payment_status: formData.payment_status
     };
 
     // 1. Optimistically update local storage and component state immediately
@@ -787,6 +793,26 @@ export default function App() {
             setErrorMessage('Failed to sync update to Google Sheets: ' + getFriendlyErrorMessage(err));
             loadData(googleToken);
           }
+        });
+    }
+  };
+
+  // Handle direct Status Toggle
+  const handleUpdateStatus = async (sale: Sale, newStatus: 'Received' | 'Pending') => {
+    const updatedItem: Sale = { ...sale, payment_status: newStatus };
+    const local = getLocalSales();
+    const idx = local.findIndex(s => s.id === sale.id);
+    if (idx !== -1) {
+      local[idx] = updatedItem;
+    }
+    saveLocalSales(local);
+    setSales(local);
+    setActiveSale(updatedItem);
+
+    if (googleToken) {
+      updateSheetSale(googleToken, updatedItem)
+        .catch((err) => {
+          console.error('Background Sheet update status error:', err);
         });
     }
   };
@@ -851,6 +877,14 @@ export default function App() {
       result = result.filter((s) => s.payment_method === selectedPayment);
     }
 
+    // Payment status filter
+    if (selectedStatus !== 'All') {
+      result = result.filter((s) => {
+        const status = s.payment_status || 'Received';
+        return status === selectedStatus;
+      });
+    }
+
     // Sort order logic
     result.sort((a, b) => {
       if (sortBy === 'date-desc') {
@@ -865,9 +899,9 @@ export default function App() {
     });
 
     return result;
-  }, [sales, searchQuery, selectedCategory, selectedPayment, sortBy]);
+  }, [sales, searchQuery, selectedCategory, selectedPayment, selectedStatus, sortBy]);
 
-  const isFiltered = searchQuery.trim() !== '' || selectedCategory !== 'All' || selectedPayment !== 'All';
+  const isFiltered = searchQuery.trim() !== '' || selectedCategory !== 'All' || selectedPayment !== 'All' || selectedStatus !== 'All';
   const filteredTotal = useMemo(() => {
     return filteredSales.reduce((sum, s) => sum + s.amount, 0);
   }, [filteredSales]);
@@ -923,6 +957,8 @@ export default function App() {
   const stats = useMemo(() => {
     let totalSales = 0;
     let totalCount = 0;
+    let totalReceived = 0;
+    let totalPending = 0;
     let videoAmount = 0;
     let websiteAmount = 0;
     let govtApplAmount = 0;
@@ -933,6 +969,14 @@ export default function App() {
       // Overall stats
       totalSales += s.amount;
       totalCount += 1;
+
+      // Payment Status stats
+      const status = s.payment_status || 'Received';
+      if (status === 'Received') {
+        totalReceived += s.amount;
+      } else if (status === 'Pending') {
+        totalPending += s.amount;
+      }
 
       // Breakdown by categories
       if (s.category === 'Video editing') {
@@ -962,6 +1006,8 @@ export default function App() {
     return {
       totalSales,
       totalCount,
+      totalReceived,
+      totalPending,
       categorySummary,
       maximum,
       sumAll
@@ -1023,33 +1069,39 @@ export default function App() {
           </div>
 
           {/* Database Connection Status Bar */}
-          <div className={`mt-3.5 flex items-center justify-between text-xs px-3 py-2 rounded-lg border transition-colors duration-200 ${
-            isDark ? 'bg-slate-900/60 border-slate-800/80 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-655'
+          <div className={`mt-3.5 flex items-center justify-between text-xs px-3.5 py-2.5 rounded-xl border transition-all duration-200 ${
+            dbSource === 'sheets'
+              ? isDark 
+                ? 'bg-slate-900/40 border-emerald-500/20 text-slate-300' 
+                : 'bg-emerald-50/30 border-emerald-100/80 text-emerald-900'
+              : isDark
+                ? 'bg-slate-900/30 border-slate-800 text-slate-400'
+                : 'bg-slate-50 border-slate-205 text-slate-600'
           }`}>
             <div className="flex flex-col gap-0.5">
               <div className="flex items-center gap-2">
                 {dbSource === 'sheets' ? (
                   <>
-                    <span className="relative flex h-2.5 w-2.5">
+                    <span className="relative flex h-2 w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                     </span>
-                    <span className={`font-semibold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>Google Sheets Connected</span>
+                    <span className={`font-semibold tracking-wide ${isDark ? 'text-slate-100' : 'text-slate-800'}`}>Google Sheets Connected</span>
                     {syncFrequency !== 'manual' && (
-                      <span className="text-[10px] bg-slate-800 text-cyan-400 px-1.5 py-0.2 rounded font-mono font-medium">
+                      <span className="text-[9px] bg-slate-800 text-cyan-400 px-1.5 py-0.5 rounded-md font-mono font-medium">
                         Auto {syncFrequency}m
                       </span>
                     )}
                   </>
                 ) : (
                   <>
-                    <span className="h-2.5 w-2.5 rounded-full bg-amber-500"></span>
-                    <span className={`font-medium ${isDark ? 'text-slate-300' : 'text-slate-650'}`}>Local Space (Offline Sandbox)</span>
+                    <span className="h-2 w-2 rounded-full bg-amber-500"></span>
+                    <span className={`font-medium tracking-wide ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Local Space (Offline Sandbox)</span>
                   </>
                 )}
               </div>
               {dbSource === 'sheets' && lastSynced && (
-                <span className="text-[9px] text-slate-400 pl-4.5 font-mono">
+                <span className="text-[9px] text-slate-400/80 pl-4 font-mono">
                   Last synced: {lastSynced}
                 </span>
               )}
@@ -1059,25 +1111,25 @@ export default function App() {
               <button 
                 onClick={handleSyncButton}
                 disabled={syncing}
-                className={`text-[10px] px-2 py-0.5 rounded font-semibold transition border flex items-center gap-1 ${
+                className={`text-[10px] px-3 py-1 rounded-lg font-bold transition-all border flex items-center gap-1.5 active:scale-95 cursor-pointer ${
                   isDark 
-                    ? 'bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border-emerald-800/50' 
-                    : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200'
+                    ? 'bg-emerald-950/85 hover:bg-emerald-900 text-emerald-400 border-emerald-850/60 hover:border-emerald-700/60' 
+                    : 'bg-emerald-600 hover:bg-emerald-700 text-white border-transparent shadow-xs'
                 }`}
               >
-                <Database className="w-3 h-3" />
+                <Database className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} />
                 {syncing ? 'Syncing...' : 'Sync Now'}
               </button>
             ) : (
               <button 
                 onClick={() => setIsSettingsOpen(true)}
-                className={`text-[10px] px-2.5 py-1 rounded font-semibold transition flex items-center gap-1 ${
+                className={`text-[10px] px-3 py-1 rounded-lg font-bold transition-all flex items-center gap-1.5 active:scale-95 cursor-pointer border ${
                   isDark 
-                    ? 'bg-slate-800 hover:bg-slate-705 text-slate-300' 
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    ? 'bg-slate-850 hover:bg-slate-800 text-slate-300 border-slate-800 hover:border-slate-700' 
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white border-transparent shadow-xs'
                 }`}
               >
-                <Database className={`w-3 h-3 ${isDark ? 'text-amber-400' : 'text-amber-500'}`} />
+                <Database className="w-3 h-3" />
                 Connect Sheets
               </button>
             )}
@@ -1118,21 +1170,37 @@ export default function App() {
                 <span>Monthly Summary</span>
               </button>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
               
-              {/* Paid Sales Card */}
+              {/* Payments Received Card */}
               <div className={`p-3.5 bg-gradient-to-br ${
                 isDark 
                   ? 'from-emerald-950/30 to-slate-900 border-emerald-500/20' 
                   : 'from-emerald-50/60 to-emerald-100/30 border-emerald-200 shadow-2xs'
               } border rounded-2xl relative overflow-hidden transition-all duration-200`}>
-                <div className="absolute top-0 right-0 p-3 text-emerald-400/20">
-                  <TrendingUp className="w-12 h-12" />
+                <div className="absolute top-0 right-0 p-3 text-emerald-400/10">
+                  <TrendingUp className="w-10 h-10" />
                 </div>
-                <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Total Earned</p>
-                <p className={`text-2xl font-black ${isDark ? 'text-emerald-400' : 'text-emerald-600'} mt-1`}>₹{stats.totalSales.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <p className={`text-[11px] font-semibold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Payments Received</p>
+                <p className={`text-xl font-black ${isDark ? 'text-emerald-400' : 'text-emerald-600'} mt-1`}>₹{stats.totalReceived.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                 <div className="mt-2 text-[10px] text-slate-400 flex items-center gap-1">
-                  <span className={`${isDark ? 'text-emerald-400' : 'text-emerald-600'} font-semibold`}>★ Paid Cash flows</span>
+                  <span className={`${isDark ? 'text-emerald-400' : 'text-emerald-600'} font-bold`}>● Total Income</span>
+                </div>
+              </div>
+
+              {/* Pending Payments Card */}
+              <div className={`p-3.5 bg-gradient-to-br ${
+                isDark 
+                  ? 'from-amber-950/20 to-slate-900 border-amber-500/20' 
+                  : 'from-amber-50/40 to-amber-100/20 border-amber-200 shadow-2xs'
+              } border rounded-2xl relative overflow-hidden transition-all duration-200`}>
+                <div className="absolute top-0 right-0 p-3 text-amber-400/10">
+                  <FileText className="w-10 h-10" />
+                </div>
+                <p className={`text-[11px] font-semibold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Pending Balance</p>
+                <p className={`text-xl font-black ${isDark ? 'text-amber-400' : 'text-amber-600'} mt-1`}>₹{stats.totalPending.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                <div className="mt-2 text-[10px] text-slate-400 flex items-center gap-1">
+                  <span className={`${isDark ? 'text-amber-400' : 'text-amber-600'} font-bold`}>⏳ Awaiting Clearance</span>
                 </div>
               </div>
 
@@ -1142,11 +1210,11 @@ export default function App() {
                   ? 'from-indigo-950/30 to-slate-900 border-indigo-500/20' 
                   : 'from-indigo-50/60 to-indigo-100/30 border-indigo-200 shadow-2xs'
               } border rounded-2xl relative overflow-hidden transition-all duration-200`}>
-                <div className="absolute top-0 right-0 p-3 text-indigo-400/20">
-                  <FileText className="w-12 h-12" />
+                <div className="absolute top-0 right-0 p-3 text-indigo-400/10">
+                  <FileText className="w-10 h-10" />
                 </div>
-                <p className={`text-xs ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Total Invoices</p>
-                <p className={`text-2xl font-black ${isDark ? 'text-indigo-400' : 'text-indigo-600'} mt-1`}>{stats.totalCount}</p>
+                <p className={`text-[11px] font-semibold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Total Invoices</p>
+                <p className={`text-xl font-black ${isDark ? 'text-indigo-400' : 'text-indigo-600'} mt-1`}>{stats.totalCount}</p>
                 <div className="mt-2 text-[10px] text-slate-400 flex items-center gap-1">
                   <span className={`${isDark ? 'text-indigo-400' : 'text-indigo-600'} font-semibold`}>📝 Issued Invoices</span>
                 </div>
@@ -1627,24 +1695,43 @@ export default function App() {
             </div>
 
             {/* Detailed filter drawers with small selects */}
-            <div className="w-full">
+            <div className="grid grid-cols-2 gap-4 w-full">
               {/* Payment Method Select */}
               <div className="flex flex-col gap-1">
-                <label className="text-[10px] font-semibold text-slate-500 uppercase">Payment Method</label>
+                <label className="text-[10px] font-black tracking-wider text-slate-500 uppercase">Payment Method</label>
                 <div className="relative">
                   <select
                     value={selectedPayment}
                     onChange={(e) => setSelectedPayment(e.target.value)}
-                    className={`w-full text-xs font-medium border rounded-lg p-2 focus:outline-none focus:border-indigo-505 appearance-none cursor-pointer ${
+                    className={`w-full text-xs font-semibold border rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500 appearance-none cursor-pointer ${
                       isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
                     }`}
                   >
-                    <option value="All" className={isDark ? "bg-slate-900 text-slate-300" : "bg-white text-slate-800"}>All Payments</option>
+                    <option value="All" className={isDark ? "bg-slate-900 text-slate-300" : "bg-white text-slate-800"}>All Methods</option>
                     {paymentMethods.map(p => (
                       <option key={p} value={p} className={isDark ? "bg-slate-900 text-slate-300" : "bg-white text-slate-800"}>{p}</option>
                     ))}
                   </select>
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-500 absolute right-2.5 top-2.5 pointer-events-none" />
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Payment Status Select */}
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-black tracking-wider text-slate-500 uppercase">Payment Status</label>
+                <div className="relative">
+                  <select
+                    value={selectedStatus}
+                    onChange={(e) => setSelectedStatus(e.target.value)}
+                    className={`w-full text-xs font-semibold border rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500 appearance-none cursor-pointer ${
+                      isDark ? 'bg-slate-900 border-slate-800 text-slate-300' : 'bg-slate-50 border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <option value="All" className={isDark ? "bg-slate-900 text-slate-300" : "bg-white text-slate-800"}>All Statuses</option>
+                    <option value="Received" className={isDark ? "bg-slate-900 text-slate-300" : "bg-white text-slate-800"}>Received</option>
+                    <option value="Pending" className={isDark ? "bg-slate-900 text-slate-300" : "bg-white text-slate-800"}>Pending</option>
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
                 </div>
               </div>
             </div>
@@ -1900,6 +1987,40 @@ export default function App() {
                 <div className="flex justify-between">
                   <span className="text-slate-500">METHOD</span>
                   <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-905'}`}>{activeSale.payment_method}</span>
+                </div>
+
+                <hr className={isDark ? "border-slate-850" : "border-slate-150"} />
+
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500">STATUS</span>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateStatus(activeSale, 'Received')}
+                      className={`text-[10px] px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                        (activeSale.payment_status || 'Received') === 'Received'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : isDark
+                            ? 'bg-slate-900 text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+                            : 'bg-slate-100 text-slate-400 hover:text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Received
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateStatus(activeSale, 'Pending')}
+                      className={`text-[10px] px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                        activeSale.payment_status === 'Pending'
+                          ? 'bg-amber-500 text-white shadow-xs'
+                          : isDark
+                            ? 'bg-slate-900 text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+                            : 'bg-slate-100 text-slate-400 hover:text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Pending
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -2305,6 +2426,25 @@ export default function App() {
                   </select>
                 </div>
 
+                <hr className={isDark ? "border-slate-850" : "border-slate-150"} />
+
+                {/* Payment Status */}
+                <div className="flex items-center justify-between">
+                  <span className="text-[10.5px] font-bold text-slate-400">PAYMENT STATUS</span>
+                  <select
+                    value={formData.payment_status}
+                    onChange={(e: any) => setFormData({ ...formData, payment_status: e.target.value })}
+                    className={`text-xs font-bold border rounded px-2.5 py-1.5 focus:outline-none ${
+                      isDark 
+                        ? 'bg-slate-950 text-white border-slate-850 focus:border-indigo-500' 
+                        : 'bg-white text-slate-800 border-slate-205 focus:border-indigo-500'
+                    }`}
+                  >
+                    <option value="Received" className={isDark ? 'bg-slate-950 text-white' : 'bg-white text-slate-800'}>Received</option>
+                    <option value="Pending" className={isDark ? 'bg-slate-950 text-white' : 'bg-white text-slate-800'}>Pending</option>
+                  </select>
+                </div>
+
               </div>
 
               {/* Description */}
@@ -2648,6 +2788,25 @@ export default function App() {
                     {paymentMethods.map(p => (
                       <option key={p} value={p} className={isDark ? 'bg-slate-950 text-white' : 'bg-white text-slate-800'}>{p}</option>
                     ))}
+                  </select>
+                </div>
+
+                <hr className={isDark ? "border-slate-850" : "border-slate-150"} />
+
+                {/* Payment Status */}
+                <div className="flex items-center justify-between">
+                  <span className="text-[10.5px] font-bold text-slate-400">PAYMENT STATUS</span>
+                  <select
+                    value={formData.payment_status}
+                    onChange={(e: any) => setFormData({ ...formData, payment_status: e.target.value })}
+                    className={`text-xs font-bold border rounded px-2.5 py-1.5 focus:outline-none ${
+                      isDark 
+                        ? 'bg-slate-950 text-white border-slate-850 focus:border-emerald-550' 
+                        : 'bg-white text-slate-800 border-slate-205 focus:border-emerald-600'
+                    }`}
+                  >
+                    <option value="Received" className={isDark ? 'bg-slate-950 text-white' : 'bg-white text-slate-800'}>Received</option>
+                    <option value="Pending" className={isDark ? 'bg-slate-950 text-white' : 'bg-white text-slate-800'}>Pending</option>
                   </select>
                 </div>
 
