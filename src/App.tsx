@@ -32,8 +32,6 @@ import {
   Activity,
   FileText,
   Calculator,
-  Sun,
-  Moon,
   ArrowUpRight,
   ArrowDownRight,
   Sparkles,
@@ -153,18 +151,38 @@ const renderErrorMessage = (msg: string) => {
 };
 
 export default function App() {
-  // Theme State
-  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
-    return (localStorage.getItem('theme') as 'dark' | 'light') || 'dark';
+  // Theme State locked to system dark mode preference
+  const [isDark, setIsDark] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem('theme');
+      window.localStorage.removeItem('themeMode');
+    }
+    if (typeof window !== 'undefined' && window.matchMedia) {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return true;
   });
 
-  const toggleTheme = () => {
-    const nextTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(nextTheme);
-    localStorage.setItem('theme', nextTheme);
-  };
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
 
-  const isDark = theme === 'dark';
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    setIsDark(mediaQuery.matches);
+
+    const handleChange = (e: MediaQueryListEvent) => {
+      setIsDark(e.matches);
+    };
+
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', handleChange);
+      return () => mediaQuery.removeEventListener('change', handleChange);
+    } else {
+      // @ts-ignore
+      mediaQuery.addListener(handleChange);
+      // @ts-ignore
+      return () => mediaQuery.removeListener(handleChange);
+    }
+  }, []);
 
   // Delete Confirmation State (bypasses iframe block on window.confirm)
   const [isConfirmingDelete, setIsConfirmingDelete] = useState<boolean>(false);
@@ -513,8 +531,8 @@ export default function App() {
       border: 'border-purple-200',
       text: 'text-purple-800',
       icon: Video,
-      colorHex: '#9333ea',
-      lightHex: '#f3e8ff'
+      colorHex: '#212a48',
+      lightHex: '#f1f3f7'
     },
     'Web Site development': {
       bg: 'bg-emerald-50 text-emerald-700 border-emerald-100',
@@ -972,11 +990,11 @@ export default function App() {
         <header className={`sticky top-0 z-20 ${isDark ? 'bg-slate-950/90 border-slate-900' : 'bg-white/95 border-slate-200 text-slate-900'} backdrop-blur-md border-b p-4 transition-colors duration-200`}>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-xl bg-slate-100 dark:bg-slate-900 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm">
+              <div className="w-10 h-10 rounded-xl bg-white dark:bg-white flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-800 shadow-sm">
                 <img 
                   src="https://lh3.googleusercontent.com/d/1kVnKI3jYuJO4QkmBtig52cargj1MGR92" 
                   alt="Tech4Geeky Logo" 
-                  className="w-7 h-7 object-contain"
+                  className="w-7 h-7 object-contain bg-white"
                   referrerPolicy="no-referrer"
                 />
               </div>
@@ -990,19 +1008,6 @@ export default function App() {
             </div>
             
             <div className="flex gap-2">
-              <button
-                id="theme-toggle-btn"
-                onClick={toggleTheme}
-                className={`w-10 h-10 rounded-xl flex items-center justify-center transition-all border active:scale-[0.93] ${
-                  isDark 
-                    ? 'bg-slate-900/80 hover:bg-slate-800 text-amber-400 border-slate-800' 
-                    : 'bg-slate-100 hover:bg-slate-200 text-indigo-600 border-slate-200 shadow-2xs'
-                }`}
-                title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
-              >
-                {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-              </button>
-
               <button 
                 id="settings-btn"
                 onClick={() => setIsSettingsOpen(true)}
@@ -1220,7 +1225,7 @@ export default function App() {
                   <defs>
                     {/* Neon Glowing Shadows for Trends */}
                     <filter id="glow" x="-10%" y="-10%" width="120%" height="120%">
-                      <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#6366f1" floodOpacity="0.4" />
+                      <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#212a48" floodOpacity="0.4" />
                     </filter>
                     <filter id="glow-emerald" x="-10%" y="-10%" width="120%" height="120%">
                       <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#10b981" floodOpacity="0.4" />
@@ -1231,8 +1236,8 @@ export default function App() {
                     
                     {/* Soft Gradient fills */}
                     <linearGradient id="area-grad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#6366f1" stopOpacity="0.3" />
-                      <stop offset="100%" stopColor="#6366f1" stopOpacity="0.0" />
+                      <stop offset="0%" stopColor="#212a48" stopOpacity="0.3" />
+                      <stop offset="100%" stopColor="#212a48" stopOpacity="0.0" />
                     </linearGradient>
                     <linearGradient id="emerald-grad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#10b981" stopOpacity="0.25" />
@@ -1283,7 +1288,7 @@ export default function App() {
                               <path 
                                 d={linePath} 
                                 fill="none" 
-                                stroke={isDark ? "#818cf8" : "#4f46e5"} 
+                                stroke={isDark ? "#7080b0" : "#212a48"} 
                                 strokeWidth={2.5} 
                                 strokeLinecap="round" 
                                 filter="url(#glow)"
@@ -1298,8 +1303,8 @@ export default function App() {
                                   cx={p.x} 
                                   cy={p.y} 
                                   r={hoveredIndex === idx ? 6 : 3.5} 
-                                  fill={isDark ? '#4f46e5' : '#818cf8'} 
-                                  stroke={isDark ? '#e0e7ff' : '#ffffff'} 
+                                  fill={isDark ? '#212a48' : '#7080b0'} 
+                                  stroke={isDark ? '#e0e5ee' : '#ffffff'} 
                                   strokeWidth={1.5}
                                   className="transition-all duration-200 cursor-pointer"
                                 />

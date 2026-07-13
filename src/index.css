@@ -3,4 +3,28 @@
 
 @theme {
   --font-sans: "Poppins", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+
+  --color-purple-50: #f1f3f7;
+  --color-purple-100: #e0e5ee;
+  --color-purple-200: #c3ccdf;
+  --color-purple-300: #9ca9c9;
+  --color-purple-400: #7080b0;
+  --color-purple-500: #506196;
+  --color-purple-600: #212a48;
+  --color-purple-700: #1c233c;
+  --color-purple-800: #171d31;
+  --color-purple-900: #121625;
+  --color-purple-950: #0d101b;
+
+  --color-indigo-50: #f1f3f7;
+  --color-indigo-100: #e0e5ee;
+  --color-indigo-200: #c3ccdf;
+  --color-indigo-300: #9ca9c9;
+  --color-indigo-400: #7080b0;
+  --color-indigo-500: #506196;
+  --color-indigo-600: #212a48;
+  --color-indigo-700: #1c233c;
+  --color-indigo-800: #171d31;
+  --color-indigo-900: #121625;
+  --color-indigo-950: #0d101b;
 }
