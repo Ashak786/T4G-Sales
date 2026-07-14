@@ -316,6 +316,19 @@ export default function App() {
     handleCalcClear();
   }, [isAddOpen, isEditOpen]);
 
+  // Prevent background scrolling when any modal drawer is open
+  useEffect(() => {
+    const isAnyModalOpen = isAddOpen || isEditOpen || isSettingsOpen || isDetailsOpen;
+    if (isAnyModalOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isAddOpen, isEditOpen, isSettingsOpen, isDetailsOpen]);
+
   // Automatically generate the latest monthly summary PDF and cache it to
   // the server whenever sales data changes, so that backend integrations
   // and automations can download it via /api/monthly-summary.pdf
