@@ -179,6 +179,19 @@ export const getAccessToken = async (): Promise<string | null> => {
 
 // Spreadsheet Management API Client
 
+// Find or Create spreadsheet
+export function extractSpreadsheetId(input: string): string {
+  const match = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (match) return match[1];
+  return input.trim();
+}
+
+export function setSpreadsheetId(idOrUrl: string) {
+  const id = extractSpreadsheetId(idOrUrl);
+  localStorage.setItem(SPREADSHEET_ID_CACHE_KEY, id);
+  return id;
+}
+
 // Helper to handle API responses and clear stale tokens on 401/403
 async function handleResponse(response: Response, defaultError: string): Promise<any> {
   if (response.status === 401 || response.status === 403) {
@@ -250,8 +263,8 @@ async function getOrCreateSpreadsheet(token: string): Promise<string> {
 
       // ALWAYS ensure correct headers are written to SalesList!
       // This solves the issue where the sheet is blank or cleared but the tab already exists.
-      const headers = ['Sl No.', 'Inv No.', 'Client Name', 'Date', 'Category', 'Amount', 'Mode of Transaction', 'Notes', 'ID', 'Payment Status'];
-      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/SalesList!A1:J1?valueInputOption=USER_ENTERED`, {
+      const headers = ['Sl No.', 'Inv No.', 'Client Name', 'Date', 'Category', 'Amount', 'Mode of Transaction', 'Notes', 'ID'];
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/SalesList!A1:I1?valueInputOption=USER_ENTERED`, {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -378,8 +391,7 @@ function rowToSale(row: any[]): Sale | null {
     client_name: row[2] || '',
     amount: Number(row[5]) || 0,
     payment_method: row[6] as any,
-    description: row[7] || '',
-    payment_status: (row[9] as any) || 'Received'
+    description: row[7] || ''
   };
 }
 
@@ -394,8 +406,7 @@ function saleToRow(sale: Sale): any[] {
     sale.amount,
     sale.payment_method,
     sale.description || '',
-    sale.id,
-    sale.payment_status || 'Received'
+    sale.id
   ];
 }
 
@@ -479,8 +490,8 @@ export async function fetchSheetsSales(token: string): Promise<Sale[]> {
     return sales;
   }
 
- const spreadsheetId = await getOrCreateSpreadsheet(token);
-  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A2:J10000`, {
+  const spreadsheetId = await getOrCreateSpreadsheet(token);
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A2:I10000`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   
@@ -516,7 +527,7 @@ export async function insertSheetSale(token: string, sale: Omit<Sale, 'id' | 'cr
   }
 
   const spreadsheetId = await getOrCreateSpreadsheet(token);
-  const appendRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A:J:append?valueInputOption=USER_ENTERED`, {
+  const appendRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A:I:append?valueInputOption=USER_ENTERED`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -545,7 +556,7 @@ export async function updateSheetSale(token: string, sale: Sale): Promise<Sale> 
   const spreadsheetId = await getOrCreateSpreadsheet(token);
   
   // Find matching row by ID (Column I is index 8)
-  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A1:J10000`, {
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A1:I10000`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   const data = await handleResponse(response, 'Failed to read spreadsheet structure for update');
@@ -565,7 +576,7 @@ export async function updateSheetSale(token: string, sale: Sale): Promise<Sale> 
   }
 
   const row = saleToRow(sale);
-  const putRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A${rowIndex}:J${rowIndex}?valueInputOption=USER_ENTERED`, {
+  const putRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A${rowIndex}:I${rowIndex}?valueInputOption=USER_ENTERED`, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -593,7 +604,7 @@ export async function deleteSheetSale(token: string, id: string): Promise<boolea
   const spreadsheetId = await getOrCreateSpreadsheet(token);
   
   // Find matching row by ID (Column I is index 8)
-  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A1:J10000`, {
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A1:I10000`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   const data = await handleResponse(response, 'Failed to read spreadsheet structure for deletion');
@@ -610,7 +621,7 @@ export async function deleteSheetSale(token: string, id: string): Promise<boolea
   if (rowIndex === -1) return true; // Already deleted or not present
 
   // Clear specific row values to maintain indexes without complex dimensions shifts
-  const clearRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A${rowIndex}:J${rowIndex}:clear`, {
+  const clearRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A${rowIndex}:I${rowIndex}:clear`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`
