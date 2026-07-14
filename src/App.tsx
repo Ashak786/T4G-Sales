@@ -533,7 +533,7 @@ export default function App() {
       border: 'border-purple-200',
       text: 'text-purple-800',
       icon: Video,
-      colorHex: '#212a48',
+      colorHex: '#222b48',
       lightHex: '#f1f3f7'
     },
     'Web Site development': {
@@ -1296,7 +1296,7 @@ export default function App() {
                   <defs>
                     {/* Neon Glowing Shadows for Trends */}
                     <filter id="glow" x="-10%" y="-10%" width="120%" height="120%">
-                      <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#212a48" floodOpacity="0.4" />
+                      <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#222b48" floodOpacity="0.4" />
                     </filter>
                     <filter id="glow-emerald" x="-10%" y="-10%" width="120%" height="120%">
                       <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#10b981" floodOpacity="0.4" />
@@ -1307,8 +1307,8 @@ export default function App() {
                     
                     {/* Soft Gradient fills */}
                     <linearGradient id="area-grad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#212a48" stopOpacity="0.3" />
-                      <stop offset="100%" stopColor="#212a48" stopOpacity="0.0" />
+                      <stop offset="0%" stopColor="#222b48" stopOpacity="0.3" />
+                      <stop offset="100%" stopColor="#222b48" stopOpacity="0.0" />
                     </linearGradient>
                     <linearGradient id="emerald-grad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#10b981" stopOpacity="0.25" />
@@ -1359,7 +1359,7 @@ export default function App() {
                               <path 
                                 d={linePath} 
                                 fill="none" 
-                                stroke={isDark ? "#7080b0" : "#212a48"} 
+                                stroke={isDark ? "#7080b0" : "#222b48"} 
                                 strokeWidth={2.5} 
                                 strokeLinecap="round" 
                                 filter="url(#glow)"
@@ -1374,7 +1374,7 @@ export default function App() {
                                   cx={p.x} 
                                   cy={p.y} 
                                   r={hoveredIndex === idx ? 6 : 3.5} 
-                                  fill={isDark ? '#212a48' : '#7080b0'} 
+                                  fill={isDark ? '#222b48' : '#7080b0'} 
                                   stroke={isDark ? '#e0e5ee' : '#ffffff'} 
                                   strokeWidth={1.5}
                                   className="transition-all duration-200 cursor-pointer"
@@ -1937,7 +1937,7 @@ export default function App() {
 
         {/* 1. VIEW SALES DETAILS COMPONENT */}
         {isDetailsOpen && activeSale && (
-          <div className={`absolute bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-md lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[90%] flex flex-col overflow-hidden transition-all duration-300 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-2xl'}`}>
+          <div className={`absolute bottom-0 inset-x-0 h-[85vh] lg:h-auto lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-md lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[90%] flex flex-col overflow-hidden transition-all duration-300 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-2xl'}`}>
             {/* Grab Bar Header */}
             <div className={`w-12 h-1.5 rounded-full mx-auto my-3 flex-shrink-0 ${isDark ? 'bg-slate-700/80' : 'bg-slate-300'}`} />
             
@@ -2120,7 +2120,7 @@ export default function App() {
 
         {/* 2. ADD SALES RECORD COMPONENT */}
         {isAddOpen && (
-          <div className={`absolute bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
+          <div className={`absolute bottom-0 inset-x-0 h-[85vh] lg:h-auto lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
             isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800 shadow-2xl'
           }`}>
             {/* Grab Bar Header */}
@@ -2484,7 +2484,7 @@ export default function App() {
 
         {/* 3. EDIT SALES RECORD COMPONENT */}
         {isEditOpen && activeSale && (
-          <div className={`absolute bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
+          <div className={`absolute bottom-0 inset-x-0 h-[85vh] lg:h-auto lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
             isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800 shadow-2xl'
           }`}>
             {/* Grab Bar Header */}
@@ -2849,7 +2849,7 @@ export default function App() {
 
         {/* 4. GOOGLE DRIVE & GOOGLE SHEETS BASE CONFIGS COMPONENT (SETTINGS MENU) */}
         {isSettingsOpen && (
-          <div className="absolute bottom-0 inset-x-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] bg-slate-900 rounded-t-[32px] border-t border-slate-800 z-40 max-h-[94%] flex flex-col transition-all duration-300">
+          <div className="absolute bottom-0 inset-x-0 h-[85vh] lg:h-auto lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] bg-slate-900 rounded-t-[32px] border-t border-slate-800 z-40 max-h-[94%] flex flex-col transition-all duration-300">
             <div className="pt-5 px-5 pb-3 border-b border-slate-850 flex items-center justify-between flex-shrink-0">
               <span className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
                 <Database className="w-4 h-4 text-indigo-400" />
