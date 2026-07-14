@@ -1158,7 +1158,7 @@ export default function App() {
                 <span>Monthly Summary</span>
               </button>
             </div>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="flex flex-col gap-3">
               
               {/* Payments Received Card */}
               <div className={`p-3.5 bg-gradient-to-br ${
