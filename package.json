@@ -12,6 +12,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@google/genai": "^2.11.0",
     "@netlify/blobs": "^10.7.9",
     "@netlify/functions": "^5.3.0",
     "@tailwindcss/vite": "^4.1.14",

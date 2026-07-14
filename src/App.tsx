@@ -506,6 +506,22 @@ export default function App() {
         saveLocalSales(sheetsSales);
         updateSyncedTime();
       } else {
+        // Try fetching from server-side database first to sync with automated updates
+        try {
+          const res = await fetch('/api/sales');
+          if (res.ok) {
+            const serverSales = await res.json();
+            if (Array.isArray(serverSales) && serverSales.length > 0) {
+              setSales(serverSales);
+              saveLocalSales(serverSales);
+              setDbSource('local');
+              return;
+            }
+          }
+        } catch (serverErr) {
+          console.warn('[Server Sync] Failed to fetch server-side sales, falling back to local storage:', serverErr);
+        }
+
         const local = getLocalSales();
         setSales(local);
         setDbSource('local');
@@ -740,6 +756,26 @@ export default function App() {
             loadData(googleToken);
           }
         });
+    } else {
+      fetch('/api/sales', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(tempSale)
+      })
+      .then(res => {
+        if (res.ok) return res.json();
+        throw new Error('Server API error');
+      })
+      .then(created => {
+        const currentLocal = getLocalSales();
+        const index = currentLocal.findIndex(s => s.id === tempId);
+        if (index !== -1) {
+          currentLocal[index] = created;
+          saveLocalSales(currentLocal);
+          setSales(currentLocal);
+        }
+      })
+      .catch(err => console.warn('[Server Sync] Background sale add failed:', err));
     }
   };
 
@@ -807,6 +843,13 @@ export default function App() {
             loadData(googleToken);
           }
         });
+    } else {
+      fetch(`/api/sales/${updatedItem.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedItem)
+      })
+      .catch(err => console.warn('[Server Sync] Update failed:', err));
     }
   };
 
@@ -827,6 +870,13 @@ export default function App() {
         .catch((err) => {
           console.error('Background Sheet update status error:', err);
         });
+    } else {
+      fetch(`/api/sales/${updatedItem.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_status: newStatus })
+      })
+      .catch(err => console.warn('[Server Sync] Status update failed:', err));
     }
   };
 
@@ -855,6 +905,11 @@ export default function App() {
           await loadData(googleToken);
         }
       }
+    } else {
+      fetch(`/api/sales/${id}`, {
+        method: 'DELETE'
+      })
+      .catch(err => console.warn('[Server Sync] Deletion failed:', err));
     }
   };
 
@@ -1171,7 +1226,13 @@ export default function App() {
               <button
                 type="button"
                 id="btn-download-monthly-summary"
-                onClick={() => generateMonthlySummaryPDF(sales)}
+                onClick={() => {
+                  if (googleToken) {
+                    generateMonthlySummaryPDF(sales);
+                  } else {
+                    window.location.href = '/api/sales/summary';
+                  }
+                }}
                 className={`text-[10.5px] font-black tracking-wide px-3 py-1 rounded-xl border transition-all duration-200 flex items-center gap-1.5 cursor-pointer select-none active:scale-95 ${
                   isDark 
                     ? 'bg-slate-950/60 border-slate-800 text-indigo-400 hover:text-indigo-300 hover:bg-slate-800' 
@@ -2057,7 +2118,13 @@ export default function App() {
               {!isConfirmingDelete && (
                 <button
                   type="button"
-                  onClick={() => generateInvoicePDF(activeSale, sales)}
+                  onClick={() => {
+                    if (googleToken) {
+                      generateInvoicePDF(activeSale, sales);
+                    } else {
+                      window.location.href = `/api/sales/${activeSale.id}/invoice`;
+                    }
+                  }}
                   className={`w-full py-3.5 px-4 font-extrabold rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 border transition duration-200 cursor-pointer ${
                     isDark 
                       ? 'bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white border-sky-500/30 hover:border-sky-400/50 shadow-md shadow-sky-950/20' 
