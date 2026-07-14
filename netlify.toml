@@ -24,6 +24,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/automate"
+  to = "/.netlify/functions/automate"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

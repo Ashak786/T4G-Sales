@@ -52,6 +52,7 @@ function rowToSale(row: SheetRow) {
     amount: Number(row[5]) || 0,
     payment_method: row[6],
     description: row[7] || "",
+    payment_status: row[9] || "Received",
   };
 }
 
@@ -180,6 +181,7 @@ export default async (req: Request) => {
       payment_method,
       description || "",
       id,
+      body.payment_status || "Received",
     ];
 
     const gatewayRes = await fetch(APPS_SCRIPT_URL, {
