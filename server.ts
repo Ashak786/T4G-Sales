@@ -103,6 +103,263 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // --- MODEL CONTEXT PROTOCOL (MCP) JSON-RPC CONNECTOR ---
+  app.post("/api/mcp", (req, res) => {
+    const requiredKey = process.env.SALES_API_SECRET;
+    if (requiredKey) {
+      const headerKey = req.headers["x-api-key"] || (req.headers["authorization"] as string)?.replace(/^Bearer\s+/i, "");
+      const queryKey = req.query.key as string;
+      if (headerKey !== requiredKey && queryKey !== requiredKey) {
+        return res.status(401).json({
+          jsonrpc: "2.0",
+          id: req.body.id || null,
+          error: {
+            code: -32001,
+            message: "Unauthorized: Invalid or missing secret key matching SALES_API_SECRET."
+          }
+        });
+      }
+    }
+
+    const { jsonrpc, id, method, params } = req.body || {};
+    if (jsonrpc !== "2.0") {
+      return res.status(400).json({
+        jsonrpc: "2.0",
+        id: id || null,
+        error: { code: -32600, message: "Invalid Request: Only JSON-RPC 2.0 is supported." }
+      });
+    }
+
+    switch (method) {
+      case "initialize": {
+        return res.json({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            protocolVersion: "2024-11-05",
+            capabilities: {
+              tools: {}
+            },
+            serverInfo: {
+              name: "tech4geeky-sales-manager-mcp",
+              version: "1.0.0"
+            }
+          }
+        });
+      }
+
+      case "tools/list": {
+        return res.json({
+          jsonrpc: "2.0",
+          id,
+          result: {
+            tools: [
+              {
+                name: "get_sales",
+                description: "List all sale records from the Tech4Geeky database.",
+                inputSchema: {
+                  type: "object",
+                  properties: {}
+                }
+              },
+              {
+                name: "add_sale",
+                description: "Create a new sale record in the Tech4Geeky database.",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    sale_date: { type: "string", description: "YYYY-MM-DD format (defaults to today)." },
+                    category: { type: "string", description: "Category of service: 'Video editing', 'Web Site development', 'Govt. Service (Appl.)', 'PC Repair', 'Graphic Designing'" },
+                    client_name: { type: "string" },
+                    amount: { type: "number", description: "Sale amount in INR." },
+                    payment_method: { type: "string", description: "Payment method: 'Cash', 'UPI/Online', 'Card', 'Bank Transfer'" },
+                    payment_status: { type: "string", description: "Payment status: 'Received' or 'Pending'" },
+                    description: { type: "string", description: "Additional details / description notes." }
+                  },
+                  required: ["client_name", "amount", "category", "payment_method"]
+                }
+              },
+              {
+                name: "update_payment_status",
+                description: "Update the payment status of an existing invoice.",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string", description: "The UUID of the sale record." },
+                    payment_status: { type: "string", description: "'Received' or 'Pending'" }
+                  },
+                  required: ["id", "payment_status"]
+                }
+              },
+              {
+                name: "delete_sale",
+                description: "Delete a sale record from the database.",
+                inputSchema: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string", description: "The UUID of the sale record to delete." }
+                  },
+                  required: ["id"]
+                }
+              }
+            ]
+          }
+        });
+      }
+
+      case "tools/call": {
+        const { name, arguments: args } = params || {};
+        const sales = getSales();
+
+        try {
+          if (name === "get_sales") {
+            return res.json({
+              jsonrpc: "2.0",
+              id,
+              result: {
+                content: [
+                  {
+                    type: "text",
+                    text: JSON.stringify(sales, null, 2)
+                  }
+                ]
+              }
+            });
+          }
+
+          if (name === "add_sale") {
+            if (!args || !args.client_name || !args.amount || !args.category || !args.payment_method) {
+              return res.json({
+                jsonrpc: "2.0",
+                id,
+                result: {
+                  isError: true,
+                  content: [{ type: "text", text: "Error: Missing required fields: client_name, amount, category, payment_method" }]
+                }
+              });
+            }
+
+            const saleId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 15);
+            const newSale: Sale = {
+              id: saleId,
+              created_at: new Date().toISOString(),
+              sale_date: args.sale_date || new Date().toISOString().split('T')[0],
+              category: args.category,
+              client_name: args.client_name,
+              client_email: args.client_email || '',
+              client_phone: args.client_phone || '',
+              amount: Number(args.amount),
+              payment_method: args.payment_method,
+              description: args.description || '',
+              payment_status: args.payment_status || 'Pending',
+              invoice_no: generateInvoiceNo(sales)
+            };
+
+            sales.push(newSale);
+            saveSales(sales);
+
+            return res.json({
+              jsonrpc: "2.0",
+              id,
+              result: {
+                content: [
+                  {
+                    type: "text",
+                    text: `✅ Success: Successfully created sale record with Invoice No: ${newSale.invoice_no} for client: ${newSale.client_name}.`
+                  }
+                ]
+              }
+            });
+          }
+
+          if (name === "update_payment_status") {
+            const { id: saleId, payment_status } = args || {};
+            const index = sales.findIndex(s => s.id === saleId);
+            if (index === -1) {
+              return res.json({
+                jsonrpc: "2.0",
+                id,
+                result: {
+                  isError: true,
+                  content: [{ type: "text", text: `Error: Sale with ID ${saleId} not found.` }]
+                }
+              });
+            }
+
+            sales[index].payment_status = payment_status;
+            saveSales(sales);
+
+            return res.json({
+              jsonrpc: "2.0",
+              id,
+              result: {
+                content: [
+                  {
+                    type: "text",
+                    text: `✅ Success: Updated payment status of Invoice ${sales[index].invoice_no} to: ${payment_status}.`
+                  }
+                ]
+              }
+            });
+          }
+
+          if (name === "delete_sale") {
+            const { id: saleId } = args || {};
+            const filtered = sales.filter(s => s.id !== saleId);
+            if (filtered.length === sales.length) {
+              return res.json({
+                jsonrpc: "2.0",
+                id,
+                result: {
+                  isError: true,
+                  content: [{ type: "text", text: `Error: Sale with ID ${saleId} not found.` }]
+                }
+              });
+            }
+
+            saveSales(filtered);
+            return res.json({
+              jsonrpc: "2.0",
+              id,
+              result: {
+                content: [
+                  {
+                    type: "text",
+                    text: `✅ Success: Deleted sale record with ID ${saleId}.`
+                  }
+                ]
+              }
+            });
+          }
+
+          return res.status(404).json({
+            jsonrpc: "2.0",
+            id,
+            error: { code: -32601, message: `Method not found: Tool ${name} does not exist.` }
+          });
+
+        } catch (err: any) {
+          return res.json({
+            jsonrpc: "2.0",
+            id,
+            result: {
+              isError: true,
+              content: [{ type: "text", text: `Internal execution error: ${err.message}` }]
+            }
+          });
+        }
+      }
+
+      default: {
+        return res.status(404).json({
+          jsonrpc: "2.0",
+          id,
+          error: { code: -32601, message: `Method not found: ${method} is not supported.` }
+        });
+      }
+    }
+  });
+
   // REST API: Get all sales
   app.get("/api/sales", (req, res) => {
     try {

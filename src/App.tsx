@@ -53,8 +53,6 @@ import {
   updateSheetSale,
   deleteSheetSale,
   syncLocalToSheets,
-  setSpreadsheetId,
-  extractSpreadsheetId,
   clearSheetSales,
   seedSheetSales,
   getAppsScriptUrl,

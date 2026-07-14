@@ -179,19 +179,6 @@ export const getAccessToken = async (): Promise<string | null> => {
 
 // Spreadsheet Management API Client
 
-// Find or Create spreadsheet
-export function extractSpreadsheetId(input: string): string {
-  const match = input.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-  if (match) return match[1];
-  return input.trim();
-}
-
-export function setSpreadsheetId(idOrUrl: string) {
-  const id = extractSpreadsheetId(idOrUrl);
-  localStorage.setItem(SPREADSHEET_ID_CACHE_KEY, id);
-  return id;
-}
-
 // Helper to handle API responses and clear stale tokens on 401/403
 async function handleResponse(response: Response, defaultError: string): Promise<any> {
   if (response.status === 401 || response.status === 403) {
