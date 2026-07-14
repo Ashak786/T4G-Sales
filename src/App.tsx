@@ -1897,7 +1897,7 @@ export default function App() {
       </main>
 
         {/* Global Bottom Sticky Action Command Strip */}
-        <div className="absolute bottom-4 right-4 z-10">
+        <div className="fixed bottom-6 right-6 z-20 lg:hidden">
           <button
             id="fab-add-sale"
             onClick={() => {
@@ -1913,7 +1913,7 @@ export default function App() {
               });
               setIsAddOpen(true);
             }}
-            className="w-14 h-14 rounded-full bg-gradient-to-tr from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white flex items-center justify-center shadow-xl shadow-indigo-950/60 transition-transform active:scale-90"
+            className="w-14 h-14 rounded-full bg-[#222b48] hover:bg-[#2c375c] text-white flex items-center justify-center shadow-xl shadow-[#222b48]/40 transition-transform active:scale-90"
             title="Create Sales Entry"
           >
             <Plus className="w-7 h-7" />
@@ -1925,7 +1925,7 @@ export default function App() {
         {/* SHEETS DETAILED OVERLAYS COVER */}
         {(isAddOpen || isEditOpen || isSettingsOpen || isDetailsOpen) && (
           <div 
-            className="absolute inset-0 bg-slate-950/70 backdrop-blur-xs z-30 transition-opacity" 
+            className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-30 transition-opacity" 
             onClick={() => {
               setIsAddOpen(false);
               setIsEditOpen(false);
@@ -1937,7 +1937,7 @@ export default function App() {
 
         {/* 1. VIEW SALES DETAILS COMPONENT */}
         {isDetailsOpen && activeSale && (
-          <div className={`absolute bottom-0 inset-x-0 h-[85vh] lg:h-auto lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-md lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[90%] flex flex-col overflow-hidden transition-all duration-300 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-2xl'}`}>
+          <div className={`fixed bottom-0 inset-x-0 h-[85vh] lg:h-auto lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-md lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[90%] flex flex-col overflow-hidden transition-all duration-300 ${isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-2xl'}`}>
             {/* Grab Bar Header */}
             <div className={`w-12 h-1.5 rounded-full mx-auto my-3 flex-shrink-0 ${isDark ? 'bg-slate-700/80' : 'bg-slate-300'}`} />
             
@@ -2120,7 +2120,7 @@ export default function App() {
 
         {/* 2. ADD SALES RECORD COMPONENT */}
         {isAddOpen && (
-          <div className={`absolute bottom-0 inset-x-0 h-[85vh] lg:h-auto lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
+          <div className={`fixed bottom-0 inset-x-0 h-[85vh] lg:h-auto lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
             isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800 shadow-2xl'
           }`}>
             {/* Grab Bar Header */}
@@ -2484,7 +2484,7 @@ export default function App() {
 
         {/* 3. EDIT SALES RECORD COMPONENT */}
         {isEditOpen && activeSale && (
-          <div className={`absolute bottom-0 inset-x-0 h-[85vh] lg:h-auto lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
+          <div className={`fixed bottom-0 inset-x-0 h-[85vh] lg:h-auto lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] rounded-t-[32px] border-t z-40 max-h-[92%] flex flex-col transition-all duration-300 ${
             isDark ? 'bg-slate-900 border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800 shadow-2xl'
           }`}>
             {/* Grab Bar Header */}
@@ -2849,7 +2849,7 @@ export default function App() {
 
         {/* 4. GOOGLE DRIVE & GOOGLE SHEETS BASE CONFIGS COMPONENT (SETTINGS MENU) */}
         {isSettingsOpen && (
-          <div className="absolute bottom-0 inset-x-0 h-[85vh] lg:h-auto lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] bg-slate-900 rounded-t-[32px] border-t border-slate-800 z-40 max-h-[94%] flex flex-col transition-all duration-300">
+          <div className="fixed bottom-0 inset-x-0 h-[85vh] lg:h-auto lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 lg:rounded-3xl lg:max-w-lg lg:border lg:inset-x-auto lg:w-full lg:max-h-[85%] bg-slate-900 rounded-t-[32px] border-t border-slate-800 z-40 max-h-[94%] flex flex-col transition-all duration-300">
             <div className="pt-5 px-5 pb-3 border-b border-slate-850 flex items-center justify-between flex-shrink-0">
               <span className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
                 <Database className="w-4 h-4 text-indigo-400" />
