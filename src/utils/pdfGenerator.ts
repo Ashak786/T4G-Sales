@@ -426,7 +426,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
     vRows.forEach((row, index) => {
       const minsVal = evaluateArithmetic(row.mins);
       const rateVal = evaluateArithmetic(row.rate);
-      const subtotal = minsVal * rateVal;
+      const subtotal = Math.round(minsVal * rateVal);
       
       const descText = row.desc ? row.desc.trim() : 'Video Editing Service';
       const mainLines = doc.splitTextToSize(descText, 76);
@@ -435,7 +435,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
         slNo: String(index + 1),
         date: index === 0 ? formatIndianDate(sale.sale_date) : '', // print date on first row only for neatness
         descriptionLines: mainLines,
-        minutes: `${row.mins || '0'}`,
+        minutes: `${(row.mins || '0').replace(' mins', '')}`,
         amount: subtotal
       });
     });
@@ -447,7 +447,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
         date: '',
         descriptionLines: doc.splitTextToSize('Thumbnail Charges', 76),
         minutes: '-',
-        amount: thumbnailAmt
+        amount: Math.round(thumbnailAmt)
       });
     }
   } else {
@@ -458,7 +458,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
       slNo: '1',
       date: formatIndianDate(sale.sale_date),
       descriptionLines: mainLines,
-      amount: sale.amount
+      amount: Math.round(sale.amount)
     });
   }
 
