@@ -56,11 +56,12 @@ function numberToRupeesWords(amount: number): string {
 
 // Format amount to standard Indian Rupees format (without special Unicode characters like ₹ which Helvetica doesn't support)
 function formatRupees(amount: number): string {
+  const roundedAmount = Math.round(amount);
   const formatter = new Intl.NumberFormat('en-IN', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
   });
-  return `Rs. ${formatter.format(amount)}`;
+  return `Rs. ${formatter.format(roundedAmount)}`;
 }
 
 // Helper function to format date to Indian Style (DD-MM-YYYY)
