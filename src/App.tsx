@@ -1632,10 +1632,10 @@ export default function App() {
             <div className="flex flex-col gap-3">
               
               {/* Payments Received Card */}
-              <div className={`p-3.5 bg-gradient-to-br ${
+              <div className={`p-3.5 ${
                 isDark 
-                  ? 'from-emerald-950/30 to-slate-900 border-emerald-500/20' 
-                  : 'from-emerald-50/60 to-emerald-100/30 border-emerald-200 shadow-2xs'
+                  ? 'bg-emerald-950/20 border-emerald-500/20' 
+                  : 'bg-emerald-50 border-emerald-200 shadow-2xs'
               } border rounded-2xl relative overflow-hidden transition-all duration-200`}>
                 <div className="absolute top-0 right-0 p-3 text-emerald-400/10">
                   <TrendingUp className="w-10 h-10" />
@@ -1648,10 +1648,10 @@ export default function App() {
               </div>
 
               {/* Pending Payments Card */}
-              <div className={`p-3.5 bg-gradient-to-br ${
+              <div className={`p-3.5 ${
                 isDark 
-                  ? 'from-amber-950/20 to-slate-900 border-amber-500/20' 
-                  : 'from-amber-50/40 to-amber-100/20 border-amber-200 shadow-2xs'
+                  ? 'bg-amber-950/10 border-amber-500/20' 
+                  : 'bg-amber-50 border-amber-200 shadow-2xs'
               } border rounded-2xl relative overflow-hidden transition-all duration-200`}>
                 <div className="absolute top-0 right-0 p-3 text-amber-400/10">
                   <FileText className="w-10 h-10" />
@@ -1664,10 +1664,10 @@ export default function App() {
               </div>
 
               {/* Total Invoices Card */}
-              <div className={`p-3.5 bg-gradient-to-br ${
+              <div className={`p-3.5 ${
                 isDark 
-                  ? 'from-indigo-950/30 to-slate-900 border-indigo-500/20' 
-                  : 'from-indigo-50/60 to-indigo-100/30 border-indigo-200 shadow-2xs'
+                  ? 'bg-indigo-950/20 border-indigo-500/20' 
+                  : 'bg-indigo-50 border-indigo-200 shadow-2xs'
               } border rounded-2xl relative overflow-hidden transition-all duration-200`}>
                 <div className="absolute top-0 right-0 p-3 text-indigo-400/10">
                   <FileText className="w-10 h-10" />
@@ -2046,7 +2046,7 @@ export default function App() {
           {!googleToken && (
             <section className={`p-3.5 rounded-xl border space-y-1 transition-all duration-250 ${
               isDark 
-                ? 'bg-gradient-to-r from-amber-950/20 to-slate-900 border-amber-500/20' 
+                ? 'bg-amber-950/20 border-amber-500/20' 
                 : 'bg-amber-50/40 border-amber-200 text-slate-800'
             }`}>
               <div className={`flex items-center gap-1.5 text-xs font-bold ${isDark ? 'text-amber-400' : 'text-amber-700'}`}>
@@ -2633,8 +2633,8 @@ export default function App() {
                   onClick={() => generateInvoicePDF(activeSale, sales)}
                   className={`w-full py-3.5 px-4 font-extrabold rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 border transition duration-200 cursor-pointer ${
                     isDark 
-                      ? 'bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white border-sky-500/30 hover:border-sky-400/50 shadow-md shadow-sky-950/20' 
-                      : 'bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-600 hover:to-indigo-600 text-white border-sky-400/30 shadow-md shadow-sky-100'
+                      ? 'bg-sky-600 hover:bg-sky-500 text-white border-sky-500/30 hover:border-sky-400/50 shadow-md shadow-sky-950/20' 
+                      : 'bg-sky-500 hover:bg-sky-600 text-white border-sky-400/30 shadow-md shadow-sky-100'
                   }`}
                 >
                   <FileText className="w-4 h-4 text-white" />
@@ -3140,7 +3140,7 @@ export default function App() {
               }`}>
                 <button
                   type="submit"
-                  className="w-full py-3 bg-gradient-to-tr from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 rounded-xl text-white font-black text-xs uppercase tracking-wider transition shadow-lg shadow-indigo-950/40 cursor-pointer"
+                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-white font-black text-xs uppercase tracking-wider transition shadow-lg shadow-indigo-950/40 cursor-pointer"
                 >
                   Confirm &amp; Log Sale
                 </button>
