@@ -314,7 +314,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   const lightGrayBg = [248, 250, 252];
 
   // Dynamic UPI payment string for real transactions
-  const upiUrl = `upi://pay?pa=ajaykumar6405-4@okicici&pn=TECH4GEEKY&am=${sale.amount}&cu=INR&tn=Invoice%20${invoiceNo}`;
+  const upiUrl = `upi://pay?pa=ajaykumar6405-4@okicici&pn=TECH4GEEKY&am=${Math.round(sale.amount)}&cu=INR&tn=Invoice%20${invoiceNo}`;
   const logoUrl = 'https://drive.google.com/open?id=1kVnKI3jYuJO4QkmBtig52cargj1MGR92&usp=drive_fs';
 
   // Load both resources in parallel to maximize speed
@@ -435,7 +435,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
         slNo: String(index + 1),
         date: index === 0 ? formatIndianDate(sale.sale_date) : '', // print date on first row only for neatness
         descriptionLines: mainLines,
-        minutes: `${row.mins || '0'} mins`,
+        minutes: `${row.mins || '0'}`,
         amount: subtotal
       });
     });
@@ -594,7 +594,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   doc.line(48, detailsOffset + 12 + 0.4, 48 + upiWidthInDetails, detailsOffset + 12 + 0.4);
   
   // Make active clickable hyperlink on the UPI ID in Payment Details
-  doc.link(48, detailsOffset + 12 - 3.5, upiWidthInDetails, 4.5, { url: upiUrl });
+  doc.link(48, detailsOffset + 12 - 5, upiWidthInDetails + 5, 8, { url: upiUrl });
 
   doc.setTextColor(120, 120, 120);
   doc.setFont('Helvetica', 'italic');
