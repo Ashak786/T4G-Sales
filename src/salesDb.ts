@@ -1,3 +1,10 @@
+export interface PartialPayment {
+  id: string;
+  amount: number;
+  date: string;
+  payment_method?: 'Cash' | 'UPI/Online' | 'Card' | 'Bank Transfer';
+}
+
 export interface Sale {
   id: string;
   created_at: string;
@@ -10,7 +17,10 @@ export interface Sale {
   invoice_no?: string;
   payment_method: 'Cash' | 'UPI/Online' | 'Card' | 'Bank Transfer';
   description?: string;
-  payment_status?: 'Received' | 'Pending';
+  payment_status?: 'Received' | 'Pending' | 'Partial';
+  received_amount?: number;
+  thumbnail_charges?: number;
+  partial_payments?: PartialPayment[];
 }
 
 const LOCAL_STORAGE_KEY = 'tech4geeky_sales_data';

@@ -217,6 +217,76 @@ export function generateLogoBase64(): string {
   }
 }
 
+// Arithmetic expression evaluator helper for PDF generation
+function evaluateArithmetic(input: string): number {
+  if (!input) return 0;
+  // Replace visual support characters to math safe operations
+  const mathExpr = input.replace(/×/g, '*').replace(/÷/g, '/');
+  // Only allow digits, arithmetic operators, parentheses, and spaces
+  const safeExpr = mathExpr.replace(/[^0-9.\+\-\*\/\(\)\s]/g, '');
+  try {
+    if (!safeExpr.trim()) return 0;
+    const result = new Function(`return (${safeExpr})`)();
+    if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
+      return Math.round(result * 100) / 100;
+    }
+  } catch (e) {
+    // fallback to parsing float
+  }
+  const floatVal = parseFloat(safeExpr);
+  return isNaN(floatVal) ? 0 : floatVal;
+}
+
+// Deserialize description note back into structural breakdown rows for PDF generation
+function deserializeVideoEditingRows(description: string, totalAmount: number): Array<{ desc: string; mins: string; rate: string }> {
+  if (!description) return [{ desc: '', mins: '', rate: String(totalAmount) }];
+  const parts = description.split('\n\n===METADATA===\n');
+  if (parts.length === 2) {
+    try {
+      const parsed = JSON.parse(parts[1]);
+      let rowsArray = [];
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        rowsArray = parsed.rows || [];
+      } else if (Array.isArray(parsed)) {
+        rowsArray = parsed;
+      }
+      return rowsArray.map((item: any) => {
+        if ('amt' in item && !('rate' in item)) {
+          return {
+            desc: item.desc || '',
+            mins: '1',
+            rate: item.amt || ''
+          };
+        }
+        return {
+          desc: item.desc || '',
+          mins: item.mins || '',
+          rate: item.rate || ''
+        };
+      });
+    } catch {
+      // fallback
+    }
+  }
+  return [{ desc: description.split('===METADATA===')[0].trim(), mins: '1', rate: String(totalAmount) }];
+}
+
+function extractThumbnailAmount(description: string): number {
+  if (!description) return 0;
+  const parts = description.split('\n\n===METADATA===\n');
+  if (parts.length === 2) {
+    try {
+      const parsed = JSON.parse(parts[1]);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.thumbnail_amount !== undefined) {
+        return Number(parsed.thumbnail_amount) || 0;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return 0;
+}
+
 export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Promise<void> {
   // Create instance of jsPDF (A4 page: 210mm x 297mm)
   const doc = new jsPDF({
@@ -309,9 +379,10 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
 
 
   // --- 4. SERVICES TABLE ---
+  const isVideoEditing = sale.category === 'Video editing';
   const startX = 15;
   const endX = 195;
-  const colX = [15, 30, 55, 160, 195];
+  const colX = isVideoEditing ? [15, 27, 49, 135, 160, 195] : [15, 30, 55, 160, 195];
   const tableY = 78;
 
   // Header Row Box
@@ -323,46 +394,135 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
 
   doc.setFontSize(9.5);
   doc.setFont('Helvetica', 'bold');
-  doc.text('SL.', 22.5, tableY + 4, { align: 'center' });
-  doc.text('No', 22.5, tableY + 8, { align: 'center' });
-  doc.text('Date', 42.5, tableY + 6, { align: 'center' });
-  doc.text('Description', 107.5, tableY + 6, { align: 'center' });
-  doc.text('Amount', 177.5, tableY + 6, { align: 'center' });
+  if (isVideoEditing) {
+    doc.text('SL.', 21, tableY + 4, { align: 'center' });
+    doc.text('No', 21, tableY + 8, { align: 'center' });
+    doc.text('Date', 38, tableY + 6, { align: 'center' });
+    doc.text('Description', 92, tableY + 6, { align: 'center' });
+    doc.text('Minutes', 147.5, tableY + 6, { align: 'center' });
+    doc.text('Total Amount', 177.5, tableY + 6, { align: 'center' });
+  } else {
+    doc.text('SL.', 22.5, tableY + 4, { align: 'center' });
+    doc.text('No', 22.5, tableY + 8, { align: 'center' });
+    doc.text('Date', 42.5, tableY + 6, { align: 'center' });
+    doc.text('Description', 107.5, tableY + 6, { align: 'center' });
+    doc.text('Amount', 177.5, tableY + 6, { align: 'center' });
+  }
 
-  // Row 1 - Dynamically height-adjusted content row
-  const row1Y = tableY + 10;
-  doc.setFont('Helvetica', 'normal');
+  // Prepare table row items dynamically
+  interface TableRowItem {
+    slNo: string;
+    date: string;
+    descriptionLines: string[];
+    minutes?: string;
+    amount: number;
+  }
+
+  const itemsToPrint: TableRowItem[] = [];
+
+  if (isVideoEditing) {
+    const vRows = deserializeVideoEditingRows(sale.description || '', sale.amount);
+    vRows.forEach((row, index) => {
+      const minsVal = evaluateArithmetic(row.mins);
+      const rateVal = evaluateArithmetic(row.rate);
+      const subtotal = minsVal * rateVal;
+      
+      const descText = row.desc ? row.desc.trim() : 'Video Editing Service';
+      const mainLines = doc.splitTextToSize(descText, 76);
+
+      itemsToPrint.push({
+        slNo: String(index + 1),
+        date: index === 0 ? formatIndianDate(sale.sale_date) : '', // print date on first row only for neatness
+        descriptionLines: mainLines,
+        minutes: `${row.mins || '0'} mins`,
+        amount: subtotal
+      });
+    });
+
+    const thumbnailAmt = extractThumbnailAmount(sale.description || '');
+    if (thumbnailAmt > 0) {
+      itemsToPrint.push({
+        slNo: String(itemsToPrint.length + 1),
+        date: '',
+        descriptionLines: doc.splitTextToSize('Thumbnail Charges', 76),
+        minutes: '-',
+        amount: thumbnailAmt
+      });
+    }
+  } else {
+    // Other categories: print single row
+    const serviceText = sale.description ? sale.description.trim() : sale.category;
+    const mainLines = doc.splitTextToSize(serviceText, 100);
+    itemsToPrint.push({
+      slNo: '1',
+      date: formatIndianDate(sale.sale_date),
+      descriptionLines: mainLines,
+      amount: sale.amount
+    });
+  }
+
+  let currentY = tableY + 10;
   
-  // Use Description Notes directly without the category prefix (falls back to category if description is blank)
-  const serviceText = sale.description ? sale.description.trim() : sale.category;
-  const splitDetails = doc.splitTextToSize(serviceText, 100);
-  const textLinesCount = splitDetails.length;
-  // Calculate height dynamically: 5mm per line plus 4mm padding
-  const rowHeight = Math.max(12, textLinesCount * 5 + 4);
+  itemsToPrint.forEach((item) => {
+    // Calculate required height for this row
+    // Each line takes 4.5mm. Plus 5mm top/bottom padding.
+    const textHeight = item.descriptionLines.length * 4.5;
+    const rowHeight = Math.max(12, textHeight + 5);
 
-  // Draw Content Row Box
-  doc.rect(startX, row1Y, endX - startX, rowHeight);
-  // Draw vertical dividers for the content row
-  colX.slice(1, -1).forEach(x => {
-    doc.line(x, row1Y, x, row1Y + rowHeight);
+    // Draw row rectangle
+    doc.setFillColor(255, 255, 255);
+    doc.rect(startX, currentY, endX - startX, rowHeight, 'S');
+
+    // Draw column dividers for this row
+    colX.slice(1, -1).forEach(x => {
+      doc.line(x, currentY, x, currentY + rowHeight);
+    });
+
+    // Draw Serial Number
+    doc.setFont('Helvetica', 'normal');
+    doc.setFontSize(9.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text(item.slNo, isVideoEditing ? 21 : 22.5, currentY + (rowHeight / 2) + 1, { align: 'center' });
+
+    // Draw Date
+    doc.text(item.date, isVideoEditing ? 38 : 42.5, currentY + (rowHeight / 2) + 1, { align: 'center' });
+
+    // Draw Description Lines
+    let lineY = currentY + 5;
+    item.descriptionLines.forEach((line) => {
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(0, 0, 0);
+      doc.text(line, isVideoEditing ? 52 : 58, lineY);
+      lineY += 4.5;
+    });
+
+    // Draw Minutes if present
+    if (isVideoEditing && item.minutes) {
+      doc.setFont('Helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(0, 0, 0);
+      doc.text(item.minutes, 147.5, currentY + (rowHeight / 2) + 1, { align: 'center' });
+    }
+
+    // Draw Amount
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(0, 0, 0);
+    const amtStr = formatRupees(item.amount);
+    doc.text(amtStr, 177.5, currentY + (rowHeight / 2) + 1, { align: 'center' });
+
+    // Advance currentY
+    currentY += rowHeight;
   });
-
-  // Render row cell values
-  doc.text('1', 22.5, row1Y + (rowHeight / 2) + 1, { align: 'center' });
-  doc.text(formatIndianDate(sale.sale_date), 42.5, row1Y + (rowHeight / 2) + 1, { align: 'center' });
-  
-  doc.setFont('Helvetica', 'bold');
-  doc.text(splitDetails, 58, row1Y + 5);
-
-  const formattedAmount = formatRupees(sale.amount);
-  doc.text(formattedAmount, 177.5, row1Y + (rowHeight / 2) + 1, { align: 'center' });
 
 
   // --- 5. SUMMARY CELLS (ROUND OFF & TOTAL) ---
-  const roundOffY = row1Y + rowHeight;
+  const roundOffY = currentY;
   doc.rect(startX, roundOffY, endX - startX, 8);
   doc.line(160, roundOffY, 160, roundOffY + 8);
   doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(0, 0, 0);
   doc.text('(-) Round off', 155, roundOffY + 5.5, { align: 'right' });
   doc.text('-', 177.5, roundOffY + 5.5, { align: 'center' });
 
@@ -371,6 +531,8 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   doc.line(160, totalPayableY, 160, totalPayableY + 8);
   doc.setFont('Helvetica', 'bold');
   doc.text('Total Payable', 155, totalPayableY + 5.5, { align: 'right' });
+  
+  const formattedAmount = formatRupees(sale.amount);
   doc.text(formattedAmount, 177.5, totalPayableY + 5.5, { align: 'center' });
 
 

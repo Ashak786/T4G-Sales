@@ -263,8 +263,8 @@ async function getOrCreateSpreadsheet(token: string): Promise<string> {
 
       // ALWAYS ensure correct headers are written to SalesList!
       // This solves the issue where the sheet is blank or cleared but the tab already exists.
-      const headers = ['Sl No.', 'Inv No.', 'Client Name', 'Date', 'Category', 'Amount', 'Mode of Transaction', 'Notes', 'ID'];
-      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/SalesList!A1:I1?valueInputOption=USER_ENTERED`, {
+      const headers = ['Sl No.', 'Inv No.', 'Client Name', 'Date', 'Category', 'Amount', 'Mode of Transaction', 'Notes', 'Status', 'Received Amount', 'ID'];
+      await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${targetId}/values/SalesList!A1:K1?valueInputOption=USER_ENTERED`, {
         method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -376,27 +376,126 @@ function formatIndianDateLocal(dateStr: string | undefined): string {
   return cleanDate;
 }
 
+function extractThumbnailAmount(description: string): number {
+  if (!description) return 0;
+  const parts = description.split('\n\n===METADATA===\n');
+  if (parts.length === 2) {
+    try {
+      const parsed = JSON.parse(parts[1]);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.thumbnail_amount !== undefined) {
+        return Number(parsed.thumbnail_amount) || 0;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return 0;
+}
+
+function extractPartialPayments(description: string): any[] | undefined {
+  if (!description) return undefined;
+  const parts = description.split('\n\n===METADATA===\n');
+  if (parts.length === 2) {
+    try {
+      const parsed = JSON.parse(parts[1]);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.partial_payments !== undefined) {
+        return parsed.partial_payments;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return undefined;
+}
+
 // Map Google Sheets standard array to Sale type
 function rowToSale(row: any[]): Sale | null {
   if (!row || row.length === 0 || !row[0]) return null;
   if (row[0] === 'Sl No.' || row[1] === 'Inv No.' || row[2] === 'Client Name') return null;
   
   const parsedDate = parseIndianDate(row[3]);
+  const amount = Number(row[5]) || 0;
+  
+  let payment_status: 'Received' | 'Pending' | 'Partial' = 'Received';
+  let received_amount = amount;
+  let id = row[8] || row[0];
+  
+  if (row.length > 10) {
+    // Newest 11-column layout
+    payment_status = (row[8] as any) || 'Received';
+    received_amount = row[9] !== undefined ? Number(row[9]) : amount;
+    id = row[10] || row[0];
+  } else if (row.length > 9) {
+    // 10-column layout
+    payment_status = (row[8] as any) || 'Received';
+    received_amount = payment_status === 'Received' ? amount : (payment_status === 'Pending' ? 0 : amount);
+    id = row[9] || row[0];
+  } else {
+    // 9-column layout
+    payment_status = 'Received';
+    received_amount = amount;
+    id = row[8] || row[0];
+  }
+
+  // --- MERGE WITH LOCAL STORAGE FOR EXTRA ROBUSTNESS ---
+  // If we have a local sale with the same ID, and it has custom payment_status or received_amount,
+  // we should preserve that status if the spreadsheet layout returned a fallback or hasn't updated yet!
+  if (typeof window !== 'undefined') {
+    try {
+      const localDataStr = localStorage.getItem('tech4geeky_sales_records');
+      if (localDataStr) {
+        const localSales: Sale[] = JSON.parse(localDataStr);
+        const matched = localSales.find(s => s.id === String(id));
+        if (matched) {
+          // If the sheet status is 'Received' (default fallback) but local is 'Pending' or 'Partial',
+          // or if the sheet status matches but local has more detailed received_amount, use local!
+          if (row.length <= 9) {
+            // Spreadsheet does not support status, keep local status
+            payment_status = matched.payment_status || 'Received';
+            received_amount = matched.received_amount !== undefined ? matched.received_amount : (payment_status === 'Received' ? amount : 0);
+          } else {
+            // Even with newer layout, if sheet still has 'Received' but local is 'Pending'/'Partial',
+            // check if local was updated more recently or preserve local status if it was changed
+            if (payment_status === 'Received' && matched.payment_status && matched.payment_status !== 'Received') {
+              payment_status = matched.payment_status;
+              received_amount = matched.received_amount !== undefined ? matched.received_amount : 0;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to merge with local storage in rowToSale:', e);
+    }
+  }
+
+  const descriptionStr = row[7] || '';
+  const thumbnailCharges = descriptionStr ? extractThumbnailAmount(descriptionStr) : 0;
+  const partialPayments = descriptionStr ? extractPartialPayments(descriptionStr) : undefined;
+
   return {
-    id: row[8] || row[0],
+    id: String(id),
     invoice_no: row[1] || '',
     created_at: parsedDate ? new Date(parsedDate).toISOString() : new Date().toISOString(),
     sale_date: parsedDate || new Date().toISOString().split('T')[0],
     category: row[4] as any,
     client_name: row[2] || '',
-    amount: Number(row[5]) || 0,
+    amount,
     payment_method: row[6] as any,
-    description: row[7] || ''
+    description: descriptionStr,
+    payment_status,
+    received_amount,
+    thumbnail_charges: thumbnailCharges || undefined,
+    partial_payments: partialPayments
   };
 }
 
 // Convert Sale to Row Array
 function saleToRow(sale: Sale): any[] {
+  const status = sale.payment_status || 'Received';
+  let recAmt = sale.amount;
+  if (status === 'Pending') recAmt = 0;
+  else if (status === 'Partial') recAmt = sale.received_amount !== undefined ? sale.received_amount : (sale.amount / 2);
+
   return [
     '=ROW()-1',
     '="INV-" & TEXT(ROW()-1, "000")',
@@ -406,6 +505,8 @@ function saleToRow(sale: Sale): any[] {
     sale.amount,
     sale.payment_method,
     sale.description || '',
+    status,
+    recAmt,
     sale.id
   ];
 }
@@ -491,7 +592,7 @@ export async function fetchSheetsSales(token: string): Promise<Sale[]> {
   }
 
   const spreadsheetId = await getOrCreateSpreadsheet(token);
-  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A2:I10000`, {
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A2:K10000`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   
@@ -527,7 +628,7 @@ export async function insertSheetSale(token: string, sale: Omit<Sale, 'id' | 'cr
   }
 
   const spreadsheetId = await getOrCreateSpreadsheet(token);
-  const appendRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A:I:append?valueInputOption=USER_ENTERED`, {
+  const appendRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A:K:append?valueInputOption=USER_ENTERED`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -555,8 +656,8 @@ export async function updateSheetSale(token: string, sale: Sale): Promise<Sale> 
 
   const spreadsheetId = await getOrCreateSpreadsheet(token);
   
-  // Find matching row by ID (Column I is index 8)
-  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A1:I10000`, {
+  // Find matching row by ID (Column K is index 10)
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A1:K10000`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   const data = await handleResponse(response, 'Failed to read spreadsheet structure for update');
@@ -564,7 +665,7 @@ export async function updateSheetSale(token: string, sale: Sale): Promise<Sale> 
   
   let rowIndex = -1;
   for (let i = 0; i < data.values.length; i++) {
-    if (data.values[i][8] === sale.id) {
+    if (data.values[i][10] === sale.id || data.values[i][9] === sale.id || data.values[i][8] === sale.id) {
       rowIndex = i + 1; // 1-indexed for sheets
       break;
     }
@@ -576,7 +677,7 @@ export async function updateSheetSale(token: string, sale: Sale): Promise<Sale> 
   }
 
   const row = saleToRow(sale);
-  const putRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A${rowIndex}:I${rowIndex}?valueInputOption=USER_ENTERED`, {
+  const putRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A${rowIndex}:K${rowIndex}?valueInputOption=USER_ENTERED`, {
     method: 'PUT',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -603,8 +704,8 @@ export async function deleteSheetSale(token: string, id: string): Promise<boolea
 
   const spreadsheetId = await getOrCreateSpreadsheet(token);
   
-  // Find matching row by ID (Column I is index 8)
-  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A1:I10000`, {
+  // Find matching row by ID (Column K is index 10)
+  const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A1:K10000`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   const data = await handleResponse(response, 'Failed to read spreadsheet structure for deletion');
@@ -612,7 +713,7 @@ export async function deleteSheetSale(token: string, id: string): Promise<boolea
 
   let rowIndex = -1;
   for (let i = 0; i < data.values.length; i++) {
-    if (data.values[i][8] === id) {
+    if (data.values[i][10] === id || data.values[i][9] === id || data.values[i][8] === id) {
       rowIndex = i + 1;
       break;
     }
@@ -621,7 +722,7 @@ export async function deleteSheetSale(token: string, id: string): Promise<boolea
   if (rowIndex === -1) return true; // Already deleted or not present
 
   // Clear specific row values to maintain indexes without complex dimensions shifts
-  const clearRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A${rowIndex}:I${rowIndex}:clear`, {
+  const clearRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A${rowIndex}:K${rowIndex}:clear`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`
@@ -664,7 +765,7 @@ export async function syncLocalToSheets(token: string, localSales: Sale[]): Prom
 
     const rows = toInsert.map(sale => saleToRow(sale));
 
-    const appendRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A:I:append?valueInputOption=USER_ENTERED`, {
+    const appendRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A:K:append?valueInputOption=USER_ENTERED`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -694,7 +795,7 @@ export async function clearSheetSales(token: string): Promise<boolean> {
   }
 
   const spreadsheetId = await getOrCreateSpreadsheet(token);
-  const clearRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A2:I:clear`, {
+  const clearRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A2:K:clear`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`
@@ -724,7 +825,7 @@ export async function seedSheetSales(token: string, defaultSales: Sale[]): Promi
   // Map to rows
   const rows = defaultSales.map(sale => saleToRow(sale));
 
-  const appendRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A:I:append?valueInputOption=USER_ENTERED`, {
+  const appendRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/SalesList!A:K:append?valueInputOption=USER_ENTERED`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,

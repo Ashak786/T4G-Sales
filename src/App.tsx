@@ -150,6 +150,195 @@ const renderErrorMessage = (msg: string) => {
   );
 };
 
+// Arithmetic expression evaluator
+const evaluateArithmetic = (input: string): number => {
+  if (!input) return 0;
+  // Replace visual support characters to math safe operations
+  const mathExpr = input.replace(/×/g, '*').replace(/÷/g, '/');
+  // Only allow digits, arithmetic operators, parentheses, and spaces
+  const safeExpr = mathExpr.replace(/[^0-9.\+\-\*\/\(\)\s]/g, '');
+  try {
+    if (!safeExpr.trim()) return 0;
+    const result = new Function(`return (${safeExpr})`)();
+    if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
+      return Math.round(result * 100) / 100;
+    }
+  } catch (e) {
+    // fallback to parsing float
+  }
+  const floatVal = parseFloat(safeExpr);
+  return isNaN(floatVal) ? 0 : floatVal;
+};
+
+// Serialize breakdown rows into standard description note with embedded metadata
+const serializeVideoEditingRows = (rows: Array<{ desc: string; mins: string; rate: string }>, thumbnailAmount?: string) => {
+  const visibleTextLines = rows.map(r => {
+    const minsVal = evaluateArithmetic(r.mins);
+    const rateVal = evaluateArithmetic(r.rate);
+    const subtotal = minsVal * rateVal;
+    return `${r.desc || 'Item'}: ${r.mins || '0'} mins @ ₹${r.rate || '0'}/min = ₹${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  });
+  if (thumbnailAmount && Number(thumbnailAmount) > 0) {
+    visibleTextLines.push(`Thumbnail Charges: ₹${Number(thumbnailAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+  }
+  const visibleText = visibleTextLines.join('\n');
+  const metadataObj = {
+    rows,
+    thumbnail_amount: thumbnailAmount ? Number(thumbnailAmount) : undefined
+  };
+  const metadata = `\n\n===METADATA===\n${JSON.stringify(metadataObj)}`;
+  return visibleText + metadata;
+};
+
+// Deserialize description note back into structural breakdown rows
+const deserializeVideoEditingRows = (description: string, totalAmount: number): Array<{ desc: string; mins: string; rate: string }> => {
+  if (!description) return [{ desc: '', mins: '', rate: String(totalAmount) }];
+  const parts = description.split('\n\n===METADATA===\n');
+  if (parts.length === 2) {
+    try {
+      const parsed = JSON.parse(parts[1]);
+      let rowsArray = [];
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        rowsArray = parsed.rows || [];
+      } else if (Array.isArray(parsed)) {
+        rowsArray = parsed;
+      }
+      return rowsArray.map((item: any) => {
+        if ('amt' in item && !('rate' in item)) {
+          return {
+            desc: item.desc || '',
+            mins: '1',
+            rate: item.amt || ''
+          };
+        }
+        return {
+          desc: item.desc || '',
+          mins: item.mins || '',
+          rate: item.rate || ''
+        };
+      });
+    } catch {
+      // fallback
+    }
+  }
+  return [{ desc: description.split('===METADATA===')[0].trim(), mins: '1', rate: String(totalAmount) }];
+};
+
+// Extract thumbnail amount from description note
+const extractThumbnailAmount = (description: string): string => {
+  if (!description) return '';
+  const parts = description.split('\n\n===METADATA===\n');
+  if (parts.length === 2) {
+    try {
+      const parsed = JSON.parse(parts[1]);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && parsed.thumbnail_amount !== undefined) {
+        return String(parsed.thumbnail_amount);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return '';
+};
+
+// Get clean description without serialised metadata
+const getCleanDescription = (desc?: string) => {
+  if (!desc) return '';
+  return desc.split('===METADATA===')[0].trim();
+};
+
+interface SaleMetadata {
+  rows?: Array<{ desc: string; mins: string; rate: string }>;
+  thumbnail_amount?: number;
+  partial_payments?: Array<{ id: string; amount: number; date: string; payment_method: 'Cash' | 'UPI/Online' | 'Bank Transfer' }>;
+}
+
+const getSaleMetadata = (description?: string): SaleMetadata => {
+  if (!description) return {};
+  const parts = description.split('\n\n===METADATA===\n');
+  if (parts.length === 2) {
+    try {
+      const parsed = JSON.parse(parts[1]);
+      if (parsed && typeof parsed === 'object') {
+        if (Array.isArray(parsed)) {
+          return { rows: parsed };
+        }
+        return parsed;
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return {};
+};
+
+const getInitialPartialPayments = (sale: Sale) => {
+  if (sale.payment_status !== 'Partial') return [];
+  const meta = getSaleMetadata(sale.description || '');
+  if (meta.partial_payments && meta.partial_payments.length > 0) {
+    return meta.partial_payments.map(p => ({
+      id: p.id || Math.random().toString(),
+      amount: String(p.amount),
+      date: p.date || sale.sale_date,
+      payment_method: (p.payment_method || sale.payment_method || 'UPI/Online') as 'Cash' | 'UPI/Online' | 'Bank Transfer'
+    }));
+  }
+  if (sale.partial_payments && sale.partial_payments.length > 0) {
+    return sale.partial_payments.map(p => ({
+      id: p.id || Math.random().toString(),
+      amount: String(p.amount),
+      date: p.date || sale.sale_date,
+      payment_method: (p.payment_method || sale.payment_method || 'UPI/Online') as 'Cash' | 'UPI/Online' | 'Bank Transfer'
+    }));
+  }
+  return [{
+    id: Math.random().toString(),
+    amount: sale.received_amount !== undefined ? String(sale.received_amount) : '',
+    date: sale.sale_date,
+    payment_method: (sale.payment_method || 'UPI/Online') as 'Cash' | 'UPI/Online' | 'Bank Transfer'
+  }];
+};
+
+const serializeSaleDescription = (
+  cleanDesc: string,
+  category: string,
+  videoRows: Array<{ desc: string; mins: string; rate: string }>,
+  thumbnailAmount?: string,
+  partialPaymentsList?: Array<{ id: string; amount: string; date: string; payment_method: 'Cash' | 'UPI/Online' | 'Bank Transfer' }>
+): string => {
+  let visibleText = cleanDesc;
+  const metadataObj: SaleMetadata = {};
+
+  if (category === 'Video editing') {
+    const visibleTextLines = videoRows.map(r => {
+      const minsVal = evaluateArithmetic(r.mins);
+      const rateVal = evaluateArithmetic(r.rate);
+      const subtotal = minsVal * rateVal;
+      return `${r.desc || 'Video editing'} (${evaluateArithmetic(r.mins)} mins @ ₹${evaluateArithmetic(r.rate)}/min) = ₹${subtotal.toLocaleString('en-IN')}`;
+    });
+    if (thumbnailAmount && Number(thumbnailAmount) > 0) {
+      visibleTextLines.push(`Thumbnail Charges: ₹${Number(thumbnailAmount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+    }
+    visibleText = visibleTextLines.join('\n');
+    metadataObj.rows = videoRows;
+    metadataObj.thumbnail_amount = thumbnailAmount ? Number(thumbnailAmount) : undefined;
+  }
+
+  if (partialPaymentsList && partialPaymentsList.length > 0) {
+    metadataObj.partial_payments = partialPaymentsList.map(p => ({
+      id: p.id,
+      amount: Number(p.amount) || 0,
+      date: p.date,
+      payment_method: p.payment_method
+    }));
+  }
+
+  const hasMetadata = Object.keys(metadataObj).length > 0;
+  if (!hasMetadata) return visibleText.trim();
+
+  return `${visibleText.trim()}\n\n===METADATA===\n${JSON.stringify(metadataObj)}`;
+};
+
 export default function App() {
   // Theme State locked to system dark mode preference
   const [isDark, setIsDark] = useState<boolean>(() => {
@@ -250,7 +439,9 @@ export default function App() {
     amount: string;
     payment_method: 'Cash' | 'UPI/Online' | 'Bank Transfer';
     description: string;
-    payment_status: 'Received' | 'Pending';
+    payment_status: 'Received' | 'Pending' | 'Partial';
+    received_amount?: string;
+    thumbnail_amount?: string;
   }>({
     sale_date: new Date().toISOString().split('T')[0],
     category: 'Video editing',
@@ -260,61 +451,223 @@ export default function App() {
     amount: '',
     payment_method: 'UPI/Online',
     description: '',
-    payment_status: 'Received'
+    payment_status: 'Received',
+    received_amount: '',
+    thumbnail_amount: ''
   });
 
   const [showAddSuggestions, setShowAddSuggestions] = useState<boolean>(false);
   const [showEditSuggestions, setShowEditSuggestions] = useState<boolean>(false);
 
-  // Mini Calculator State
-  const [calcInput, setCalcInput] = useState<string>('');
-  const [calcResult, setCalcResult] = useState<string>('');
-  const [showCalculator, setShowCalculator] = useState<boolean>(false);
+  // Video Editing Breakdowns Row State
+  const [videoRows, setVideoRows] = useState<Array<{ desc: string; mins: string; rate: string }>>([{ desc: '', mins: '', rate: '' }]);
 
-  const handleCalcPress = (val: string) => {
-    setCalcInput((prev) => {
-      // Prevent consecutive operators if desired, but keep it simple and robust
-      return prev + val;
-    });
-  };
+  // Multiple Partial Payments State
+  const [partialPayments, setPartialPayments] = useState<Array<{
+    id: string;
+    amount: string;
+    date: string;
+    payment_method: 'Cash' | 'UPI/Online' | 'Bank Transfer';
+  }>>([]);
 
-  const handleCalcClear = () => {
-    setCalcInput('');
-    setCalcResult('');
-  };
-
-  const handleCalcEvaluate = () => {
-    // Replace visual support characters to math safe operations
-    const mathExpr = calcInput.replace(/×/g, '*').replace(/÷/g, '/');
-    const safeExpr = mathExpr.replace(/[^0-9.\+\-\*\/\(\)\s]/g, '');
-    try {
-      if (!safeExpr.trim()) return;
-      
-      // Safe execution context
-      const result = new Function(`return (${safeExpr})`)();
-      if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
-        const finishedValue = String(Math.round(result * 100) / 100);
-        setCalcResult(finishedValue);
-        // Automatically put the answer directly in the active form's amount field
-        setFormData((prev) => ({ ...prev, amount: finishedValue }));
-      } else {
-        setCalcResult('Error');
-      }
-    } catch (e) {
-      setCalcResult('Error');
+  const handleUpdateVideoRows = (newRows: Array<{ desc: string; mins: string; rate: string }>) => {
+    setVideoRows(newRows);
+    if (formData.category === 'Video editing') {
+      const rowsTotal = newRows.reduce((sum, r) => {
+        const minsVal = evaluateArithmetic(r.mins);
+        const rateVal = evaluateArithmetic(r.rate);
+        return sum + (minsVal * rateVal);
+      }, 0);
+      const thumbAmt = formData.thumbnail_amount || '';
+      const total = rowsTotal + (thumbAmt ? Number(thumbAmt) : 0);
+      const serializedDesc = serializeVideoEditingRows(newRows, thumbAmt);
+      setFormData(prev => ({
+        ...prev,
+        amount: String(total),
+        description: serializedDesc
+      }));
     }
   };
 
-  const handleCalcApply = () => {
-    if (calcResult && calcResult !== 'Error') {
-      setFormData((prev) => ({ ...prev, amount: calcResult }));
-    }
+  const handleUpdateThumbnailAmount = (val: string) => {
+    const cleanVal = val.replace(/[^0-9.]/g, '');
+    const rowsTotal = videoRows.reduce((sum, r) => {
+      const minsVal = evaluateArithmetic(r.mins);
+      const rateVal = evaluateArithmetic(r.rate);
+      return sum + (minsVal * rateVal);
+    }, 0);
+    const total = rowsTotal + (cleanVal ? Number(cleanVal) : 0);
+    const serializedDesc = serializeVideoEditingRows(videoRows, cleanVal);
+    setFormData(prev => ({
+      ...prev,
+      thumbnail_amount: cleanVal,
+      amount: String(total),
+      description: serializedDesc
+    }));
   };
 
-  // Reset calculator when modals open or close
-  useEffect(() => {
-    handleCalcClear();
-  }, [isAddOpen, isEditOpen]);
+  const renderPartialPaymentsFormSection = (accentColor: 'cyan' | 'emerald') => {
+    const totalAmountVal = Number(formData.amount) || 0;
+    const currentSum = partialPayments.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+    const remainingBalance = Math.max(0, totalAmountVal - currentSum);
+
+    const isCyan = accentColor === 'cyan';
+    const textAccentClass = isCyan ? 'text-cyan-500' : 'text-emerald-500';
+    const borderAccentClass = isCyan ? 'focus:border-cyan-500' : 'focus:border-emerald-500';
+
+    const handleAddPartialPaymentRow = () => {
+      setPartialPayments(prev => [
+        ...prev,
+        {
+          id: Math.random().toString(),
+          amount: '',
+          date: formData.sale_date || new Date().toISOString().split('T')[0],
+          payment_method: 'UPI/Online'
+        }
+      ]);
+    };
+
+    const handleUpdateRow = (id: string, field: 'amount' | 'date' | 'payment_method', value: string) => {
+      setPartialPayments(prev => prev.map(p => {
+        if (p.id !== id) return p;
+        if (field === 'amount') {
+          const clean = value.replace(/[^0-9.]/g, '');
+          return { ...p, amount: clean };
+        }
+        return { ...p, [field]: value };
+      }));
+    };
+
+    const handleRemoveRow = (id: string) => {
+      setPartialPayments(prev => prev.filter(p => p.id !== id));
+    };
+
+    return (
+      <div className={`mt-3.5 p-3.5 rounded-2xl border ${isDark ? 'bg-slate-950/60 border-slate-850' : 'bg-slate-50 border-slate-150/70 shadow-3xs'} space-y-3.5`}>
+        <div className="flex items-center justify-between">
+          <label className={`text-[10px] font-black tracking-wider uppercase ${textAccentClass}`}>
+            Installment Breakdown (Multiple Payments)
+          </label>
+          <span className="text-[10px] font-bold text-slate-500">
+            Total Sale: <span className="font-mono">₹{totalAmountVal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          </span>
+        </div>
+
+        {/* Rows */}
+        <div className="space-y-2.5">
+          {partialPayments.length === 0 ? (
+            <div className="text-center py-2 text-xs text-slate-500 italic">
+              No installment logs added. Click below to add.
+            </div>
+          ) : (
+            partialPayments.map((p, idx) => (
+              <div key={p.id} className={`p-3 rounded-xl border relative transition-all ${
+                isDark ? 'bg-slate-900/60 border-slate-855' : 'bg-white border-slate-200 shadow-4xs'
+              } space-y-2`}>
+                <div className="flex justify-between items-center">
+                  <span className="text-[9px] font-black text-slate-500 uppercase">INSTALLMENT #{idx + 1}</span>
+                  {partialPayments.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveRow(p.id)}
+                      className="text-rose-500 hover:text-rose-455 transition-colors p-1"
+                      title="Remove Installment"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {/* Amount */}
+                  <div className="space-y-0.5">
+                    <span className="text-[9px] font-bold text-slate-500 uppercase">AMOUNT (₹)</span>
+                    <div className="relative">
+                      <span className={`absolute left-2.5 top-2 text-xs font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>₹</span>
+                      <input
+                        type="text"
+                        placeholder="e.g. 500"
+                        required
+                        value={p.amount}
+                        onChange={(e) => handleUpdateRow(p.id, 'amount', e.target.value)}
+                        className={`w-full border rounded-lg pl-5.5 pr-2 py-1.5 text-xs font-mono font-bold focus:outline-none transition-all ${
+                          isDark
+                            ? `bg-slate-950 border-slate-850 text-slate-100 ${borderAccentClass} placeholder-slate-650`
+                            : `bg-slate-50 border-slate-205 text-slate-850 ${borderAccentClass} placeholder-slate-400`
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Date */}
+                  <div className="space-y-0.5">
+                    <span className="text-[9px] font-bold text-slate-500 uppercase">DATE RECEIVED</span>
+                    <input
+                      type="date"
+                      required
+                      value={p.date}
+                      onChange={(e) => handleUpdateRow(p.id, 'date', e.target.value)}
+                      className={`w-full border rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:outline-none transition-all ${
+                        isDark
+                          ? `bg-slate-950 border-slate-850 text-white ${borderAccentClass}`
+                          : `bg-slate-50 border-slate-205 text-slate-800 ${borderAccentClass}`
+                      }`}
+                    />
+                  </div>
+
+                  {/* Method */}
+                  <div className="space-y-0.5">
+                    <span className="text-[9px] font-bold text-slate-500 uppercase">METHOD</span>
+                    <select
+                      value={p.payment_method}
+                      onChange={(e) => handleUpdateRow(p.id, 'payment_method', e.target.value as any)}
+                      className={`w-full border rounded-lg px-2.5 py-1.5 text-xs font-bold focus:outline-none transition-all ${
+                        isDark
+                          ? `bg-slate-950 border-slate-850 text-white ${borderAccentClass}`
+                          : `bg-slate-50 border-slate-205 text-slate-800 ${borderAccentClass}`
+                      }`}
+                    >
+                      {paymentMethods.map(pm => (
+                        <option key={pm} value={pm}>{pm}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Add installment btn */}
+        <button
+          type="button"
+          onClick={handleAddPartialPaymentRow}
+          className={`w-full py-2 border border-dashed rounded-xl flex items-center justify-center gap-1.5 text-[10.5px] font-bold transition-all cursor-pointer ${
+            isCyan
+              ? 'border-cyan-500/30 hover:border-cyan-400/50 hover:bg-cyan-950/20 text-cyan-400'
+              : 'border-emerald-500/30 hover:border-emerald-400/50 hover:bg-emerald-950/20 text-emerald-500'
+          }`}
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>Add Installment Log</span>
+        </button>
+
+        {/* Live Sum Breakdown */}
+        <div className={`p-3 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-850' : 'bg-white border-slate-150'} text-xs font-semibold space-y-1.5`}>
+          <div className="flex justify-between items-center">
+            <span className="text-slate-500">Total Received so far:</span>
+            <span className="text-emerald-500 font-mono font-bold">₹{currentSum.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-slate-500">Remaining Balance:</span>
+            <span className={`font-mono font-bold ${remainingBalance > 0 ? (isDark ? 'text-amber-400' : 'text-amber-600') : 'text-slate-500'}`}>
+              ₹{remainingBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   // Prevent background scrolling when any modal drawer is open
   useEffect(() => {
@@ -654,6 +1007,30 @@ export default function App() {
       return alert('Enter a valid sales amount');
     }
 
+    const cleanDesc = getCleanDescription(formData.description);
+    const validPayments = formData.payment_status === 'Partial'
+      ? partialPayments.filter(p => p.amount && !isNaN(Number(p.amount)))
+      : [];
+
+    const recAmt = formData.payment_status === 'Partial'
+      ? validPayments.reduce((sum, p) => sum + Number(p.amount), 0)
+      : (formData.payment_status === 'Received' ? Number(formData.amount) : 0);
+
+    const mappedPayments = validPayments.map(p => ({
+      id: p.id,
+      amount: Number(p.amount),
+      date: p.date || formData.sale_date,
+      payment_method: p.payment_method
+    }));
+
+    const serializedDesc = serializeSaleDescription(
+      cleanDesc,
+      formData.category,
+      videoRows,
+      formData.thumbnail_amount,
+      formData.payment_status === 'Partial' ? mappedPayments : []
+    );
+
     const saleData = {
       sale_date: formData.sale_date,
       category: formData.category,
@@ -662,8 +1039,11 @@ export default function App() {
       client_phone: formData.client_phone.trim() || undefined,
       amount: Number(formData.amount),
       payment_method: formData.payment_method,
-      description: formData.description.trim() || undefined,
-      payment_status: formData.payment_status
+      description: serializedDesc,
+      payment_status: formData.payment_status,
+      received_amount: recAmt,
+      thumbnail_charges: formData.category === 'Video editing' && formData.thumbnail_amount ? Number(formData.thumbnail_amount) : undefined,
+      partial_payments: formData.payment_status === 'Partial' ? mappedPayments : undefined
     };
 
     // 1. Generate local optimistic sale item with a temporary ID
@@ -683,6 +1063,8 @@ export default function App() {
 
     // 3. Close the drawer and reset form state instantly
     setIsAddOpen(false);
+    setVideoRows([{ desc: '', mins: '', rate: '' }]);
+    setPartialPayments([]);
     setFormData({
       sale_date: new Date().toISOString().split('T')[0],
       category: 'Video editing',
@@ -692,7 +1074,9 @@ export default function App() {
       amount: '',
       payment_method: 'UPI/Online',
       description: '',
-      payment_status: 'Received'
+      payment_status: 'Received',
+      received_amount: '',
+      thumbnail_amount: ''
     });
 
     // 4. Sync to Google Sheets in the background if connected
@@ -721,6 +1105,8 @@ export default function App() {
   // Set up values for edit modal
   const openEditModal = (sale: Sale) => {
     setActiveSale(sale);
+    const thumbAmt = sale.category === 'Video editing' ? extractThumbnailAmount(sale.description || '') : '';
+    const cleanDesc = getCleanDescription(sale.description || '');
     setFormData({
       sale_date: sale.sale_date,
       category: sale.category,
@@ -729,9 +1115,18 @@ export default function App() {
       client_phone: sale.client_phone || '',
       amount: String(sale.amount),
       payment_method: sale.payment_method,
-      description: sale.description || '',
-      payment_status: sale.payment_status || 'Received'
+      description: cleanDesc,
+      payment_status: sale.payment_status || 'Received',
+      received_amount: sale.received_amount !== undefined ? String(sale.received_amount) : '',
+      thumbnail_amount: thumbAmt
     });
+    if (sale.category === 'Video editing') {
+      setVideoRows(deserializeVideoEditingRows(sale.description || '', sale.amount));
+    } else {
+      setVideoRows([{ desc: '', mins: '', rate: '' }]);
+    }
+    const initialPayments = getInitialPartialPayments(sale);
+    setPartialPayments(initialPayments);
     setIsEditOpen(true);
   };
 
@@ -744,6 +1139,30 @@ export default function App() {
       return alert('Enter a valid sale amount');
     }
 
+    const cleanDesc = getCleanDescription(formData.description);
+    const validPayments = formData.payment_status === 'Partial'
+      ? partialPayments.filter(p => p.amount && !isNaN(Number(p.amount)))
+      : [];
+
+    const recAmt = formData.payment_status === 'Partial'
+      ? validPayments.reduce((sum, p) => sum + Number(p.amount), 0)
+      : (formData.payment_status === 'Received' ? Number(formData.amount) : 0);
+
+    const mappedPayments = validPayments.map(p => ({
+      id: p.id,
+      amount: Number(p.amount),
+      date: p.date || formData.sale_date,
+      payment_method: p.payment_method
+    }));
+
+    const serializedDesc = serializeSaleDescription(
+      cleanDesc,
+      formData.category,
+      videoRows,
+      formData.thumbnail_amount,
+      formData.payment_status === 'Partial' ? mappedPayments : []
+    );
+
     const updatedItem: Sale = {
       ...activeSale,
       sale_date: formData.sale_date,
@@ -753,8 +1172,11 @@ export default function App() {
       client_phone: formData.client_phone.trim() || undefined,
       amount: Number(formData.amount),
       payment_method: formData.payment_method,
-      description: formData.description.trim() || undefined,
-      payment_status: formData.payment_status
+      description: serializedDesc,
+      payment_status: formData.payment_status,
+      received_amount: recAmt,
+      thumbnail_charges: formData.category === 'Video editing' && formData.thumbnail_amount ? Number(formData.thumbnail_amount) : undefined,
+      partial_payments: formData.payment_status === 'Partial' ? mappedPayments : undefined
     };
 
     // 1. Optimistically update local storage and component state immediately
@@ -771,6 +1193,8 @@ export default function App() {
     // 2. Close Edit drawer and clear selection instantly
     setIsEditOpen(false);
     setActiveSale(null);
+    setVideoRows([{ desc: '', mins: '', rate: '' }]);
+    setPartialPayments([]);
 
     // 3. Sync update to Google Sheets in the background if connected
     if (googleToken) {
@@ -786,8 +1210,51 @@ export default function App() {
   };
 
   // Handle direct Status Toggle
-  const handleUpdateStatus = async (sale: Sale, newStatus: 'Received' | 'Pending') => {
-    const updatedItem: Sale = { ...sale, payment_status: newStatus };
+  const handleUpdateStatus = async (sale: Sale, newStatus: 'Received' | 'Pending' | 'Partial') => {
+    let recAmt = sale.amount;
+    let partials = sale.partial_payments;
+    
+    if (newStatus === 'Pending') {
+      recAmt = 0;
+      partials = undefined;
+    } else if (newStatus === 'Partial') {
+      const meta = getSaleMetadata(sale.description || '');
+      if (meta.partial_payments && meta.partial_payments.length > 0) {
+        partials = meta.partial_payments;
+        recAmt = partials.reduce((sum, p) => sum + p.amount, 0);
+      } else if (sale.partial_payments && sale.partial_payments.length > 0) {
+        partials = sale.partial_payments;
+        recAmt = partials.reduce((sum, p) => sum + p.amount, 0);
+      } else {
+        const initialPart = sale.received_amount !== undefined && sale.received_amount > 0 ? sale.received_amount : (sale.amount / 2);
+        partials = [{
+          id: Math.random().toString(),
+          amount: initialPart,
+          date: sale.sale_date,
+          payment_method: sale.payment_method || 'UPI/Online'
+        }];
+        recAmt = initialPart;
+      }
+    }
+
+    const cleanDesc = getCleanDescription(sale.description);
+    const videoRowsLocal = sale.category === 'Video editing' ? deserializeVideoEditingRows(sale.description || '', sale.amount) : [];
+    const thumbAmtLocal = sale.category === 'Video editing' ? extractThumbnailAmount(sale.description || '') : '';
+    const serializedDesc = serializeSaleDescription(
+      cleanDesc,
+      sale.category,
+      videoRowsLocal,
+      thumbAmtLocal,
+      newStatus === 'Partial' ? (partials as any) : []
+    );
+
+    const updatedItem: Sale = { 
+      ...sale, 
+      payment_status: newStatus,
+      received_amount: recAmt,
+      description: serializedDesc,
+      partial_payments: newStatus === 'Partial' ? partials : undefined
+    };
     const local = getLocalSales();
     const idx = local.findIndex(s => s.id === sale.id);
     if (idx !== -1) {
@@ -964,6 +1431,10 @@ export default function App() {
         totalReceived += s.amount;
       } else if (status === 'Pending') {
         totalPending += s.amount;
+      } else if (status === 'Partial') {
+        const rec = s.received_amount !== undefined ? s.received_amount : (s.amount / 2);
+        totalReceived += rec;
+        totalPending += Math.max(0, s.amount - rec);
       }
 
       // Breakdown by categories
@@ -1717,6 +2188,7 @@ export default function App() {
                   >
                     <option value="All" className={isDark ? "bg-slate-900 text-slate-300" : "bg-white text-slate-800"}>All Statuses</option>
                     <option value="Received" className={isDark ? "bg-slate-900 text-slate-300" : "bg-white text-slate-800"}>Received</option>
+                    <option value="Partial" className={isDark ? "bg-slate-900 text-slate-300" : "bg-white text-slate-800"}>Partial Payment</option>
                     <option value="Pending" className={isDark ? "bg-slate-900 text-slate-300" : "bg-white text-slate-800"}>Pending</option>
                   </select>
                   <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-2.5 pointer-events-none" />
@@ -1742,8 +2214,12 @@ export default function App() {
                       client_phone: '',
                       amount: '',
                       payment_method: 'UPI/Online',
-                      description: ''
+                      description: '',
+                      payment_status: 'Received',
+                      received_amount: '',
+                      thumbnail_amount: ''
                     });
+                    setVideoRows([{ desc: '', mins: '', rate: '' }]);
                     setIsAddOpen(true);
                   }}
                   className="hidden lg:flex items-center gap-1 px-2 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[11px] transition-all"
@@ -1869,7 +2345,22 @@ export default function App() {
                       <div className={`text-xs font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
                         ₹{sale.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </div>
-                      <div>
+                      <div className="flex items-center gap-1.5">
+                        {(() => {
+                          const status = sale.payment_status || 'Received';
+                          if (status === 'Received') {
+                            return <span className="text-[8.5px] px-1.5 py-0.2 bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 font-bold rounded">Paid</span>;
+                          } else if (status === 'Pending') {
+                            return <span className="text-[8.5px] px-1.5 py-0.2 bg-amber-500/10 text-amber-500 dark:text-amber-400 font-bold rounded">Unpaid</span>;
+                          } else {
+                            const rec = sale.received_amount !== undefined ? sale.received_amount : (sale.amount / 2);
+                            return (
+                              <span className="text-[8.5px] px-1.5 py-0.2 bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 font-bold rounded">
+                                Part: ₹{rec.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                              </span>
+                            );
+                          }
+                        })()}
                         <span className={`text-[9px] font-mono font-semibold px-2 py-0.5 rounded border ${
                           isDark ? 'bg-indigo-950/80 text-indigo-300 border-indigo-900' : 'bg-indigo-50 text-indigo-700 border-indigo-200'
                         }`}>{getInvoiceNo(sale)}</span>
@@ -1897,8 +2388,12 @@ export default function App() {
                 client_phone: '',
                 amount: '',
                 payment_method: 'UPI/Online',
-                description: ''
+                description: '',
+                payment_status: 'Received',
+                received_amount: '',
+                thumbnail_amount: ''
               });
+              setVideoRows([{ desc: '', mins: '', rate: '' }]);
               setIsAddOpen(true);
             }}
             className="w-14 h-14 rounded-full bg-[#222b48] hover:bg-[#2c375c] text-white flex items-center justify-center shadow-xl shadow-[#222b48]/40 transition-transform active:scale-90"
@@ -1984,6 +2479,7 @@ export default function App() {
                   <div className="flex gap-1.5">
                     <button
                       type="button"
+                      id="details-received-btn"
                       onClick={() => handleUpdateStatus(activeSale, 'Received')}
                       className={`text-[10px] px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
                         (activeSale.payment_status || 'Received') === 'Received'
@@ -1997,6 +2493,21 @@ export default function App() {
                     </button>
                     <button
                       type="button"
+                      id="details-partial-btn"
+                      onClick={() => handleUpdateStatus(activeSale, 'Partial')}
+                      className={`text-[10px] px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                        activeSale.payment_status === 'Partial'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : isDark
+                            ? 'bg-slate-900 text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+                            : 'bg-slate-100 text-slate-400 hover:text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      Partial
+                    </button>
+                    <button
+                      type="button"
+                      id="details-pending-btn"
                       onClick={() => handleUpdateStatus(activeSale, 'Pending')}
                       className={`text-[10px] px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
                         activeSale.payment_status === 'Pending'
@@ -2012,12 +2523,99 @@ export default function App() {
                 </div>
               </div>
 
+              {activeSale.payment_status === 'Partial' && (() => {
+                const parts = getInitialPartialPayments(activeSale);
+                const totalPaid = parts.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+                const pendingBalance = Math.max(0, activeSale.amount - totalPaid);
+                return (
+                  <div className="space-y-2 pt-1 pb-1">
+                    <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-black">Installment Receipt Log ({parts.length})</span>
+                    <div className="space-y-1.5">
+                      {parts.map((p, idx) => (
+                        <div key={p.id || idx} className={`flex items-center justify-between p-3 rounded-xl border ${
+                          isDark 
+                            ? 'bg-slate-950/60 border-slate-850 text-slate-200' 
+                            : 'bg-slate-50 border-slate-150 text-slate-705 shadow-3xs'
+                        }`}>
+                          <div className="flex flex-col gap-0.5 text-left">
+                            <span className="font-bold text-xs">Installment #{idx + 1}</span>
+                            <span className="text-[9.5px] text-slate-550 font-semibold leading-none mt-1">
+                              {formatIndianDate(p.date)} • <span className={isDark ? 'text-indigo-400' : 'text-indigo-600 font-extrabold'}>{p.payment_method}</span>
+                            </span>
+                          </div>
+                          <span className="text-xs font-black font-mono">
+                            ₹{Number(p.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Summary Metrics */}
+                    <div className={`p-3 rounded-xl border ${
+                      isDark ? 'bg-slate-950 border-slate-850' : 'bg-slate-100/30 border-slate-155/70 shadow-3xs'
+                    } text-[11px] font-bold space-y-1.5`}>
+                      <div className="flex justify-between items-center text-slate-500">
+                        <span>Total Paid:</span>
+                        <span className="text-emerald-500 font-mono font-bold">
+                          ₹{totalPaid.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-slate-500">
+                        <span>Pending Balance:</span>
+                        <span className={`${pendingBalance > 0 ? (isDark ? 'text-amber-400' : 'text-amber-600') : 'text-slate-500'} font-mono font-bold`}>
+                          ₹{pendingBalance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {activeSale.description && (
-                <div className="space-y-1 pb-2">
+                <div className="space-y-1.5 pb-2">
                   <span className="text-[10px] text-slate-500 uppercase tracking-wider block">Description Notes</span>
-                  <p className={`p-3 rounded-xl leading-relaxed text-xs border whitespace-pre-wrap ${isDark ? 'bg-slate-950 text-slate-300 border-slate-850' : 'bg-slate-50 text-slate-700 border-slate-200/85'}`}>
-                    {activeSale.description}
-                  </p>
+                  {activeSale.category === 'Video editing' && activeSale.description.includes('===METADATA===') ? (
+                    <div className="space-y-2">
+                      {deserializeVideoEditingRows(activeSale.description, activeSale.amount).map((row, idx) => (
+                        <div key={idx} className={`flex items-center justify-between p-3 rounded-xl border ${
+                          isDark 
+                            ? 'bg-slate-950/60 border-slate-850 text-slate-200' 
+                            : 'bg-slate-50 border-slate-150 text-slate-700 shadow-3xs'
+                        }`}>
+                          <span className="font-semibold text-xs leading-normal">
+                            {row.desc || 'Video Editing'}
+                          </span>
+                          <span className={`text-[10px] font-bold font-mono px-2 py-0.5 rounded-md flex-shrink-0 ${
+                            isDark ? 'bg-slate-900 text-indigo-400' : 'bg-white border border-slate-200 text-indigo-600'
+                          }`}>
+                            {evaluateArithmetic(row.mins)} mins
+                          </span>
+                        </div>
+                      ))}
+                      {/* Render Thumbnail Charges if any */}
+                      {Number(extractThumbnailAmount(activeSale.description)) > 0 && (
+                        <div className={`flex items-center justify-between p-3 rounded-xl border border-dashed ${
+                          isDark 
+                            ? 'bg-purple-950/5 border-purple-500/20 text-slate-200' 
+                            : 'bg-purple-50/20 border-purple-100 text-slate-700'
+                        }`}>
+                          <span className="font-semibold text-xs leading-normal flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>
+                            Thumbnail Charges
+                          </span>
+                          <span className={`text-[10px] font-bold font-mono px-2 py-0.5 rounded-md flex-shrink-0 ${
+                            isDark ? 'bg-purple-500/10 text-purple-400' : 'bg-purple-50 text-purple-700'
+                          }`}>
+                            ₹{Number(extractThumbnailAmount(activeSale.description)).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className={`p-3 rounded-xl leading-relaxed text-xs border whitespace-pre-wrap ${isDark ? 'bg-slate-950 text-slate-300 border-slate-850' : 'bg-slate-50 text-slate-700 border-slate-200/85'}`}>
+                      {activeSale.description.split('===METADATA===')[0].trim()}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -2126,183 +2724,8 @@ export default function App() {
 
             <form onSubmit={handleCreateSale} className="flex-1 flex flex-col min-h-0 overflow-hidden">
               <div className="flex-1 overflow-y-auto p-5 space-y-4">
-              
-              {/* Category picker pills inside form */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black tracking-wider text-slate-500 uppercase">Service Sector</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {categories.map((catKey) => {
-                    const config = getCategoryConfig(catKey);
-                    const CatIcon = config.icon;
-                    const isSelected = formData.category === catKey;
 
-                    return (
-                      <button
-                        key={catKey}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, category: catKey })}
-                        className={`p-2.5 rounded-xl border flex items-center gap-2 text-left transition-all ${
-                          isSelected 
-                            ? isDark 
-                              ? 'bg-slate-950 border-cyan-500 shadow-md ring-1 ring-cyan-500/20 text-white' 
-                              : 'bg-indigo-50 border-indigo-600 text-indigo-900 shadow-sm ring-1 ring-indigo-600/10'
-                            : isDark 
-                              ? 'bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white' 
-                              : 'bg-slate-50 border-slate-200/80 hover:border-slate-300 text-slate-650 hover:text-slate-900'
-                        }`}
-                      >
-                        <div className={`p-1.5 rounded-lg border ${
-                          isSelected 
-                            ? config.bg 
-                            : isDark ? 'bg-slate-855 text-slate-500 border-slate-800' : 'bg-white text-slate-400 border-slate-200'
-                        }`}>
-                          <CatIcon className="w-3.5 h-3.5" />
-                        </div>
-                        <span className="text-[10.5px] font-bold line-clamp-1">{catKey}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Amount input */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Sale Value (INR)</label>
-                  <button
-                    type="button"
-                    onClick={() => setShowCalculator(!showCalculator)}
-                    className={`text-[10px] font-bold flex items-center gap-1 transition ${isDark ? 'text-cyan-400 hover:text-cyan-300' : 'text-indigo-600 hover:text-indigo-700'}`}
-                  >
-                    <Calculator className="w-3 h-3" />
-                    <span>{showCalculator ? 'Hide Calculator' : 'Mini Calculator'}</span>
-                  </button>
-                </div>
-                <div className="relative">
-                  <span className={`absolute left-3.5 top-2.5 text-lg font-bold ${isDark ? 'text-cyan-400' : 'text-indigo-600'}`}>₹</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="250.00"
-                    required
-                    value={formData.amount}
-                    onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                    className={`w-full border rounded-xl pl-8 pr-4 py-2.5 text-sm font-bold focus:outline-none transition-all ${
-                      isDark 
-                        ? 'bg-slate-950 border-slate-800 text-slate-100 focus:border-cyan-500 placeholder-slate-600' 
-                        : 'bg-slate-50 border-slate-205 text-slate-850 focus:border-indigo-500 placeholder-slate-400'
-                    }`}
-                  />
-                </div>
-
-                {showCalculator && (
-                  <div className={`p-2.5 rounded-xl border space-y-2 mt-2 transition-colors duration-200 ${isDark ? 'bg-slate-950 border-slate-850' : 'bg-slate-100 border-slate-200/80 shadow-3xs'}`}>
-                    <div className={`rounded-lg border p-2 flex flex-col items-end text-right min-h-[48px] transition-colors duration-200 ${isDark ? 'bg-slate-900 border-slate-850' : 'bg-white border-slate-200'}`}>
-                      <div className="text-[9.5px] text-slate-500 font-mono tracking-wider max-w-full break-all">
-                        {calcInput || '0'}
-                      </div>
-                      <div className={`text-xs font-black font-mono mt-0.5 ${isDark ? 'text-cyan-400' : 'text-indigo-600'}`}>
-                        {calcResult ? `= ₹${calcResult}` : '₹0'}
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-4 gap-1 font-mono">
-                      {[
-                        { label: '7', val: '7', action: () => handleCalcPress('7') },
-                        { label: '8', val: '8', action: () => handleCalcPress('8') },
-                        { label: '9', val: '9', action: () => handleCalcPress('9') },
-                        { label: '÷', val: '/', action: () => handleCalcPress('/') },
-                        { label: '4', val: '4', action: () => handleCalcPress('4') },
-                        { label: '5', val: '5', action: () => handleCalcPress('5') },
-                        { label: '6', val: '6', action: () => handleCalcPress('6') },
-                        { label: '×', val: '*', action: () => handleCalcPress('*') },
-                        { label: '1', val: '1', action: () => handleCalcPress('1') },
-                        { label: '2', val: '2', action: () => handleCalcPress('2') },
-                        { label: '3', val: '3', action: () => handleCalcPress('3') },
-                        { label: '-', val: '-', action: () => handleCalcPress('-') }
-                      ].map((btn) => (
-                        <button 
-                          key={btn.label}
-                          type="button" 
-                          onClick={btn.action} 
-                          className={`p-1.5 text-xs font-black rounded-lg transition-all active:scale-95 ${
-                            btn.val === '/' || btn.val === '*' || btn.val === '-'
-                              ? isDark ? 'bg-slate-900 hover:bg-slate-850 text-cyan-400' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-100'
-                              : isDark ? 'bg-slate-900 hover:bg-slate-800 text-slate-200' : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-3xs'
-                          }`}
-                        >
-                          {btn.label}
-                        </button>
-                      ))}
-                      
-                      <button 
-                        type="button" 
-                        onClick={() => handleCalcClear()} 
-                        className={`p-1.5 text-xs font-black rounded-lg transition-all active:scale-95 border ${
-                          isDark ? 'bg-rose-950/20 text-rose-400 border-rose-900/10' : 'bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-200'
-                        }`}
-                      >
-                        C
-                      </button>
-                      <button 
-                        type="button" 
-                        onClick={() => handleCalcPress('0')} 
-                        className={`p-1.5 text-xs font-black rounded-lg transition-all active:scale-95 border ${
-                          isDark ? 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-transparent' : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-3xs'
-                        }`}
-                      >
-                        0
-                      </button>
-                      <button 
-                        type="button" 
-                        onClick={() => handleCalcPress('.')} 
-                        className={`p-1.5 text-xs font-black rounded-lg transition-all active:scale-95 border ${
-                          isDark ? 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-transparent' : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-3xs'
-                        }`}
-                      >
-                        .
-                      </button>
-                      <button 
-                        type="button" 
-                        onClick={() => handleCalcPress('+')} 
-                        className={`p-1.5 text-xs font-black rounded-lg transition-all active:scale-95 border ${
-                          isDark ? 'bg-slate-900 hover:bg-slate-850 text-cyan-400 border-transparent' : 'bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border-indigo-100'
-                        }`}
-                      >
-                        +
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-1 font-sans">
-                      <button 
-                        type="button" 
-                        onClick={() => handleCalcEvaluate()} 
-                        className={`py-1.5 text-white text-[11px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 ${
-                          isDark ? 'bg-cyan-600 hover:bg-cyan-500' : 'bg-indigo-600 hover:bg-indigo-700 shadow-3xs'
-                        }`}
-                      >
-                        <span>=</span>
-                        <span>Calculate</span>
-                      </button>
-                      <button 
-                        type="button" 
-                        disabled={!calcResult || calcResult === 'Error'}
-                        onClick={() => handleCalcApply()} 
-                        className={`py-1.5 border disabled:opacity-30 disabled:pointer-events-none text-[11px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 ${
-                          isDark 
-                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20' 
-                            : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100 shadow-3xs'
-                        }`}
-                      >
-                        <Check className="w-3 h-3" />
-                        <span>Apply &amp; Select</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Client Name */}
+              {/* Client Name (First field) */}
               <div className="space-y-1 relative">
                 <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Client identifier / Project</label>
                 <input
@@ -2373,6 +2796,259 @@ export default function App() {
                 )}
               </div>
 
+              {/* Category picker pills inside form */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black tracking-wider text-slate-500 uppercase">Service Sector</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {categories.map((catKey) => {
+                    const config = getCategoryConfig(catKey);
+                    const CatIcon = config.icon;
+                    const isSelected = formData.category === catKey;
+
+                    return (
+                      <button
+                        key={catKey}
+                        type="button"
+                        onClick={() => {
+                          setFormData({ ...formData, category: catKey });
+                          if (catKey === 'Video editing') {
+                            const hasPreviousValues = videoRows.length > 0 && (videoRows[0].desc || videoRows[0].mins || videoRows[0].rate);
+                            const initRows = hasPreviousValues
+                              ? videoRows
+                              : [{ desc: formData.description, mins: '1', rate: formData.amount }];
+                            handleUpdateVideoRows(initRows);
+                          }
+                        }}
+                        className={`p-2.5 rounded-xl border flex items-center gap-2 text-left transition-all ${
+                          isSelected 
+                            ? isDark 
+                              ? 'bg-slate-950 border-cyan-500 shadow-md ring-1 ring-cyan-500/20 text-white' 
+                              : 'bg-indigo-50 border-indigo-600 text-indigo-900 shadow-sm ring-1 ring-indigo-600/10'
+                            : isDark 
+                              ? 'bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white' 
+                              : 'bg-slate-50 border-slate-200/80 hover:border-slate-300 text-slate-655 hover:text-slate-900'
+                        }`}
+                      >
+                        <div className={`p-1.5 rounded-lg border ${
+                          isSelected 
+                            ? config.bg 
+                            : isDark ? 'bg-slate-855 text-slate-500 border-slate-800' : 'bg-white text-slate-400 border-slate-200'
+                        }`}>
+                          <CatIcon className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="text-[10.5px] font-bold line-clamp-1">{catKey}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Conditional Amount/Description UI for Video Editing */}
+              {formData.category === 'Video editing' ? (
+                <div className={`space-y-3 p-4 rounded-2xl border transition-all ${
+                  isDark 
+                    ? 'bg-purple-950/10 border-purple-500/20' 
+                    : 'bg-purple-50/30 border-purple-100'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black tracking-wider text-purple-500 uppercase">
+                      Video Project Breakdown
+                    </label>
+                    <div className="text-[10px] font-black text-slate-500">
+                      Total: <span className={isDark ? 'text-cyan-400 font-mono' : 'text-indigo-600 font-mono'}>₹{Number(formData.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {videoRows.map((row, idx) => {
+                      const calculatedRowTotal = evaluateArithmetic(row.mins) * evaluateArithmetic(row.rate);
+                      return (
+                        <div key={idx} className={`flex flex-col gap-1.5 p-3 rounded-xl border border-dashed relative transition-all ${
+                          isDark 
+                            ? 'border-slate-800 bg-slate-950/40' 
+                            : 'border-slate-200 bg-white shadow-3xs'
+                        }`}>
+                          {videoRows.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = [...videoRows];
+                                updated.splice(idx, 1);
+                                handleUpdateVideoRows(updated);
+                              }}
+                              className="absolute top-2 right-2 text-rose-500 hover:text-rose-455 transition-colors p-1"
+                              title="Remove Row"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pr-4">
+                            <div className="space-y-1">
+                              <span className={`text-[9px] font-bold uppercase ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Item Description</span>
+                              <input
+                                type="text"
+                                placeholder="e.g. Rough Cut"
+                                value={row.desc}
+                                onChange={(e) => {
+                                  const updated = [...videoRows];
+                                  updated[idx].desc = e.target.value;
+                                  handleUpdateVideoRows(updated);
+                                }}
+                                required
+                                className={`w-full border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none transition-all ${
+                                  isDark 
+                                    ? 'bg-slate-900 border-slate-800 text-slate-100 focus:border-cyan-500 placeholder-slate-600' 
+                                    : 'bg-white border-slate-200 text-slate-800 focus:border-indigo-500 placeholder-slate-400'
+                                }`}
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <span className={`text-[9px] font-bold uppercase ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Minutes</span>
+                              <input
+                                type="text"
+                                placeholder="e.g. 10 or 5+5"
+                                value={row.mins}
+                                onChange={(e) => {
+                                  const updated = [...videoRows];
+                                  updated[idx].mins = e.target.value;
+                                  handleUpdateVideoRows(updated);
+                                }}
+                                required
+                                className={`w-full border rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold focus:outline-none transition-all ${
+                                  isDark 
+                                    ? 'bg-slate-900 border-slate-800 text-slate-100 focus:border-cyan-500 placeholder-slate-600' 
+                                    : 'bg-white border-slate-205 text-slate-850 focus:border-indigo-500 placeholder-slate-400'
+                                }`}
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <span className={`text-[9px] font-bold uppercase ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Rate (₹ / min)</span>
+                              <input
+                                type="text"
+                                placeholder="e.g. 120"
+                                value={row.rate}
+                                onChange={(e) => {
+                                  const updated = [...videoRows];
+                                  updated[idx].rate = e.target.value;
+                                  handleUpdateVideoRows(updated);
+                                }}
+                                required
+                                className={`w-full border rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold focus:outline-none transition-all ${
+                                  isDark 
+                                    ? 'bg-slate-900 border-slate-800 text-slate-100 focus:border-cyan-500 placeholder-slate-600' 
+                                    : 'bg-white border-slate-205 text-slate-850 focus:border-indigo-500 placeholder-slate-400'
+                                }`}
+                              />
+                            </div>
+                          </div>
+
+                          {(row.mins.trim() || row.rate.trim()) && (
+                            <div className="text-[10px] text-slate-500 font-bold font-mono pl-1 flex flex-wrap items-center gap-1.5">
+                              <span>Row Total:</span>
+                              <span className="text-emerald-500 font-mono">₹{calculatedRowTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              <span className={`text-[9px] font-normal font-sans ${isDark ? 'text-slate-450' : 'text-slate-500'}`}>({evaluateArithmetic(row.mins)} mins @ ₹{evaluateArithmetic(row.rate)}/min)</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleUpdateVideoRows([...videoRows, { desc: '', amt: '' }]);
+                    }}
+                    className={`w-full py-2 border border-dashed rounded-xl flex items-center justify-center gap-1 text-[11px] font-bold transition-all cursor-pointer ${
+                      isDark 
+                        ? 'border-purple-500/30 hover:border-purple-400/50 hover:bg-purple-950/20 text-purple-400' 
+                        : 'border-indigo-200 hover:border-indigo-305 hover:bg-indigo-50 text-indigo-600 shadow-3xs'
+                    }`}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Item breakdown Row</span>
+                  </button>
+
+                  {/* Optional Thumbnail Charges */}
+                  <div className={`p-3 rounded-xl border relative transition-all ${
+                    isDark 
+                      ? 'border-slate-800 bg-slate-950/40' 
+                      : 'border-slate-205 bg-white shadow-3xs'
+                  }`}>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className={`text-[10px] font-bold uppercase ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Thumbnail Charges (Optional)</span>
+                        {formData.thumbnail_amount && Number(formData.thumbnail_amount) > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateThumbnailAmount('')}
+                            className="text-[10px] font-bold text-rose-500 hover:text-rose-400 transition-colors"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <span className={`absolute left-3 top-2 text-xs font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>₹</span>
+                        <input
+                          type="text"
+                          placeholder="e.g. 300 (Optional)"
+                          value={formData.thumbnail_amount || ''}
+                          onChange={(e) => handleUpdateThumbnailAmount(e.target.value)}
+                          className={`w-full border rounded-lg pl-6 pr-2.5 py-1.5 text-xs font-mono font-bold focus:outline-none transition-all ${
+                            isDark 
+                              ? 'bg-slate-900 border-slate-800 text-slate-100 focus:border-cyan-500 placeholder-slate-650' 
+                              : 'bg-white border-slate-205 text-slate-850 focus:border-indigo-500 placeholder-slate-400'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Amount input for non-Video sectors */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Sale Value (INR)</label>
+                    <div className="relative">
+                      <span className={`absolute left-3.5 top-2.5 text-lg font-bold ${isDark ? 'text-cyan-400' : 'text-indigo-600'}`}>₹</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="250.00"
+                        required
+                        value={formData.amount}
+                        onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                        className={`w-full border rounded-xl pl-8 pr-4 py-2.5 text-sm font-bold focus:outline-none transition-all ${
+                          isDark 
+                            ? 'bg-slate-950 border-slate-800 text-slate-100 focus:border-cyan-500 placeholder-slate-605' 
+                            : 'bg-slate-50 border-slate-205 text-slate-850 focus:border-indigo-500 placeholder-slate-400'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Description input for non-Video sectors */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Performance note / Details</label>
+                    <textarea
+                      placeholder="Scope of work details, deliverables, revision counts, parts replaced..."
+                      rows={2}
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      className={`w-full border rounded-xl px-4 py-2 text-xs focus:outline-none transition-all resize-none ${
+                        isDark 
+                          ? 'bg-slate-950 border-slate-800 text-slate-100 focus:border-cyan-500 placeholder-slate-650' 
+                          : 'bg-slate-50 border-slate-205 text-slate-805 focus:border-indigo-500 placeholder-slate-400'
+                      }`}
+                    />
+                  </div>
+                </>
+              )}
+
               {/* Date, Status & Payment in structured mobile grid */}
               <div className={`space-y-3.5 p-3.5 rounded-xl border transition-colors duration-200 ${
                 isDark ? 'bg-slate-950/40 border-slate-850' : 'bg-slate-50 border-slate-150'
@@ -2421,7 +3097,18 @@ export default function App() {
                   <span className="text-[10.5px] font-bold text-slate-400">PAYMENT STATUS</span>
                   <select
                     value={formData.payment_status}
-                    onChange={(e: any) => setFormData({ ...formData, payment_status: e.target.value })}
+                    onChange={(e: any) => {
+                      const status = e.target.value;
+                      setFormData({ ...formData, payment_status: status });
+                      if (status === 'Partial' && partialPayments.length === 0) {
+                        setPartialPayments([{
+                          id: Math.random().toString(),
+                          amount: formData.received_amount || String((Number(formData.amount) || 0) / 2) || '',
+                          date: formData.sale_date || new Date().toISOString().split('T')[0],
+                          payment_method: formData.payment_method || 'UPI/Online'
+                        }]);
+                      }
+                    }}
                     className={`text-xs font-bold border rounded px-2.5 py-1.5 focus:outline-none ${
                       isDark 
                         ? 'bg-slate-950 text-white border-slate-850 focus:border-indigo-500' 
@@ -2429,26 +3116,18 @@ export default function App() {
                     }`}
                   >
                     <option value="Received" className={isDark ? 'bg-slate-950 text-white' : 'bg-white text-slate-800'}>Received</option>
+                    <option value="Partial" className={isDark ? 'bg-slate-950 text-white' : 'bg-white text-slate-800'}>Partial</option>
                     <option value="Pending" className={isDark ? 'bg-slate-950 text-white' : 'bg-white text-slate-800'}>Pending</option>
                   </select>
                 </div>
 
-              </div>
+                {formData.payment_status === 'Partial' && (
+                  <>
+                    <hr className={isDark ? "border-slate-850" : "border-slate-150"} />
+                    {renderPartialPaymentsFormSection('cyan')}
+                  </>
+                )}
 
-              {/* Description */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Performance note / Details</label>
-                <textarea
-                  placeholder="Scope of work details, deliverables, revision counts, parts replaced..."
-                  rows={2}
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className={`w-full border rounded-xl px-4 py-2 text-xs focus:outline-none transition-all resize-none ${
-                    isDark 
-                      ? 'bg-slate-950 border-slate-800 text-slate-100 focus:border-cyan-500 placeholder-slate-650' 
-                      : 'bg-slate-50 border-slate-205 text-slate-805 focus:border-indigo-500 placeholder-slate-400'
-                  }`}
-                />
               </div>
 
               </div>
@@ -2493,181 +3172,8 @@ export default function App() {
 
             <form onSubmit={handleUpdateSale} className="flex-1 flex flex-col min-h-0 overflow-hidden">
               <div className="flex-1 overflow-y-auto p-5 space-y-4">
-              
-              {/* Category selector */}
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-black tracking-wider text-slate-500 uppercase">Service Sector</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {categories.map((catKey) => {
-                    const config = getCategoryConfig(catKey);
-                    const CatIcon = config.icon;
-                    const isSelected = formData.category === catKey;
 
-                    return (
-                      <button
-                        key={catKey}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, category: catKey })}
-                        className={`p-2.5 rounded-xl border flex items-center gap-2 text-left transition-all ${
-                          isSelected 
-                            ? 'bg-emerald-500/10 border-emerald-500 shadow-md ring-1 ring-emerald-550/20 text-[#05966c]' 
-                            : isDark
-                              ? 'bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white'
-                              : 'bg-slate-50 border-slate-200/80 hover:border-slate-300 text-slate-650 hover:text-slate-900'
-                        }`}
-                      >
-                        <div className={`p-1.5 rounded-lg border ${
-                          isSelected 
-                            ? config.bg 
-                            : isDark ? 'bg-slate-855 text-slate-500 border-slate-800' : 'bg-white text-slate-400 border-slate-200'
-                        }`}>
-                          <CatIcon className="w-3.5 h-3.5" />
-                        </div>
-                        <span className="text-[10.5px] font-bold line-clamp-1">{catKey}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Amount */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Sale Value (INR)</label>
-                  <button
-                    type="button"
-                    onClick={() => setShowCalculator(!showCalculator)}
-                    className={`text-[10px] font-bold flex items-center gap-1 transition ${isDark ? 'text-emerald-400 hover:text-emerald-300' : 'text-emerald-600 hover:text-emerald-700'}`}
-                  >
-                    <Calculator className="w-3 h-3" />
-                    <span>{showCalculator ? 'Hide Calculator' : 'Mini Calculator'}</span>
-                  </button>
-                </div>
-                <div className="relative">
-                  <span className={`absolute left-3.5 top-2.5 text-lg font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>₹</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="250.00"
-                    required
-                    value={formData.amount}
-                    onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                    className={`w-full border rounded-xl pl-8 pr-4 py-2.5 text-sm font-bold focus:outline-none transition-all ${
-                      isDark 
-                        ? 'bg-slate-950 border-slate-800 text-slate-100 focus:border-emerald-500 placeholder-slate-600' 
-                        : 'bg-slate-50 border-slate-205 text-slate-850 focus:border-emerald-600 placeholder-slate-400'
-                    }`}
-                  />
-                </div>
-
-                {showCalculator && (
-                  <div className={`p-2.5 rounded-xl border space-y-2 mt-2 transition-colors duration-200 ${isDark ? 'bg-slate-950 border-slate-850' : 'bg-slate-100 border-slate-200/80 shadow-3xs'}`}>
-                    <div className={`rounded-lg border p-2 flex flex-col items-end text-right min-h-[48px] transition-colors duration-200 ${isDark ? 'bg-slate-900 border-slate-850' : 'bg-white border-slate-200'}`}>
-                      <div className="text-[9.5px] text-slate-500 font-mono tracking-wider max-w-full break-all">
-                        {calcInput || '0'}
-                      </div>
-                      <div className={`text-xs font-black font-mono mt-0.5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
-                        {calcResult ? `= ₹${calcResult}` : '₹0'}
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-4 gap-1 font-mono">
-                      {[
-                        { label: '7', val: '7', action: () => handleCalcPress('7') },
-                        { label: '8', val: '8', action: () => handleCalcPress('8') },
-                        { label: '9', val: '9', action: () => handleCalcPress('9') },
-                        { label: '÷', val: '/', action: () => handleCalcPress('/') },
-                        { label: '4', val: '4', action: () => handleCalcPress('4') },
-                        { label: '5', val: '5', action: () => handleCalcPress('5') },
-                        { label: '6', val: '6', action: () => handleCalcPress('6') },
-                        { label: '×', val: '*', action: () => handleCalcPress('*') },
-                        { label: '1', val: '1', action: () => handleCalcPress('1') },
-                        { label: '2', val: '2', action: () => handleCalcPress('2') },
-                        { label: '3', val: '3', action: () => handleCalcPress('3') },
-                        { label: '-', val: '-', action: () => handleCalcPress('-') }
-                      ].map((btn) => (
-                        <button 
-                          key={btn.label}
-                          type="button" 
-                          onClick={btn.action} 
-                          className={`p-1.5 text-xs font-black rounded-lg transition-all active:scale-95 ${
-                            btn.val === '/' || btn.val === '*' || btn.val === '-'
-                              ? isDark ? 'bg-slate-900 hover:bg-slate-850 text-emerald-400' : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border border-emerald-100 shadow-3xs'
-                              : isDark ? 'bg-slate-900 hover:bg-slate-800 text-slate-200' : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-3xs'
-                          }`}
-                        >
-                          {btn.label}
-                        </button>
-                      ))}
-                      
-                      <button 
-                        type="button" 
-                        onClick={() => handleCalcClear()} 
-                        className={`p-1.5 text-xs font-black rounded-lg transition-all active:scale-95 border ${
-                          isDark ? 'bg-rose-950/20 text-rose-400 border-rose-900/10' : 'bg-rose-50 hover:bg-rose-100 text-rose-600 border-rose-200'
-                        }`}
-                      >
-                        C
-                      </button>
-                      <button 
-                        type="button" 
-                        onClick={() => handleCalcPress('0')} 
-                        className={`p-1.5 text-xs font-black rounded-lg transition-all active:scale-95 border ${
-                          isDark ? 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-transparent' : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-3xs'
-                        }`}
-                      >
-                        0
-                      </button>
-                      <button 
-                        type="button" 
-                        onClick={() => handleCalcPress('.')} 
-                        className={`p-1.5 text-xs font-black rounded-lg transition-all active:scale-95 border ${
-                          isDark ? 'bg-slate-900 hover:bg-slate-800 text-slate-200 border-transparent' : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-3xs'
-                        }`}
-                      >
-                        .
-                      </button>
-                      <button 
-                        type="button" 
-                        onClick={() => handleCalcPress('+')} 
-                        className={`p-1.5 text-xs font-black rounded-lg transition-all active:scale-95 border ${
-                          isDark ? 'bg-slate-900 hover:bg-slate-850 text-emerald-400 border-transparent' : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-600 border-emerald-100'
-                        }`}
-                      >
-                        +
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-1 font-sans">
-                      <button 
-                        type="button" 
-                        onClick={() => handleCalcEvaluate()} 
-                        className={`py-1.5 text-white text-[11px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 ${
-                          isDark ? 'bg-emerald-600 hover:bg-emerald-550' : 'bg-emerald-600 hover:bg-emerald-700 shadow-3xs'
-                        }`}
-                      >
-                        <span>=</span>
-                        <span>Calculate</span>
-                      </button>
-                      <button 
-                        type="button" 
-                        disabled={!calcResult || calcResult === 'Error'}
-                        onClick={() => handleCalcApply()} 
-                        className={`py-1.5 border disabled:opacity-30 disabled:pointer-events-none text-[11px] font-bold rounded-lg transition-all active:scale-95 flex items-center justify-center gap-1 ${
-                          isDark 
-                            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20' 
-                            : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-105 shadow-3xs'
-                        }`}
-                      >
-                        <Check className="w-3 h-3" />
-                        <span>Apply &amp; Select</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Client Name */}
+              {/* Client Name (First field) */}
               <div className="space-y-1 relative">
                 <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Client identifier / Project</label>
                 <input
@@ -2683,7 +3189,7 @@ export default function App() {
                   onBlur={() => setTimeout(() => setShowEditSuggestions(false), 200)}
                   className={`w-full border rounded-xl px-4 py-2.5 text-xs font-medium focus:outline-none transition-all ${
                     isDark 
-                      ? 'bg-slate-950 border-slate-800 text-slate-100 focus:border-emerald-500 placeholder-slate-650' 
+                      ? 'bg-slate-950 border-slate-800 text-slate-100 focus:border-emerald-500 placeholder-slate-655' 
                       : 'bg-slate-50 border-slate-205 text-slate-800 focus:border-emerald-600 placeholder-slate-400'
                   }`}
                 />
@@ -2706,7 +3212,7 @@ export default function App() {
                           <User className="w-3.5 h-3.5 text-slate-400" />
                           <span>{client.name}</span>
                         </div>
-                        <span className="text-[10px] font-bold text-slate-450">
+                        <span className="text-[10px] font-bold text-slate-455">
                           {client.count} {client.count === 1 ? 'past order' : 'past orders'}
                         </span>
                       </button>
@@ -2737,6 +3243,257 @@ export default function App() {
                   </div>
                 )}
               </div>
+
+              {/* Category selector */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black tracking-wider text-slate-500 uppercase">Service Sector</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {categories.map((catKey) => {
+                    const config = getCategoryConfig(catKey);
+                    const CatIcon = config.icon;
+                    const isSelected = formData.category === catKey;
+
+                    return (
+                      <button
+                        key={catKey}
+                        type="button"
+                        onClick={() => {
+                          setFormData({ ...formData, category: catKey });
+                          if (catKey === 'Video editing') {
+                            const hasPreviousValues = videoRows.length > 0 && (videoRows[0].desc || videoRows[0].mins || videoRows[0].rate);
+                            const initRows = hasPreviousValues
+                              ? videoRows
+                              : [{ desc: formData.description, mins: '1', rate: formData.amount }];
+                            handleUpdateVideoRows(initRows);
+                          }
+                        }}
+                        className={`p-2.5 rounded-xl border flex items-center gap-2 text-left transition-all ${
+                          isSelected 
+                            ? 'bg-emerald-500/10 border-emerald-500 shadow-md ring-1 ring-emerald-550/20 text-[#05966c]' 
+                            : isDark
+                              ? 'bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white'
+                              : 'bg-slate-50 border-slate-200/80 hover:border-slate-300 text-slate-655 hover:text-slate-900'
+                        }`}
+                      >
+                        <div className={`p-1.5 rounded-lg border ${
+                          isSelected 
+                            ? config.bg 
+                            : isDark ? 'bg-slate-855 text-slate-500 border-slate-800' : 'bg-white text-slate-400 border-slate-200'
+                        }`}>
+                          <CatIcon className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="text-[10.5px] font-bold line-clamp-1">{catKey}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Conditional Amount/Description UI for Video Editing */}
+              {formData.category === 'Video editing' ? (
+                <div className={`space-y-3 p-4 rounded-2xl border transition-all ${
+                  isDark 
+                    ? 'bg-emerald-950/10 border-emerald-500/20' 
+                    : 'bg-emerald-50/30 border-emerald-100'
+                }`}>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-black tracking-wider text-emerald-500 uppercase">
+                      Video Project Breakdown
+                    </label>
+                    <div className="text-[10px] font-black text-slate-500">
+                      Total: <span className={isDark ? 'text-emerald-400 font-mono' : 'text-emerald-600 font-mono'}>₹{Number(formData.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2.5">
+                    {videoRows.map((row, idx) => {
+                      const calculatedRowTotal = evaluateArithmetic(row.mins) * evaluateArithmetic(row.rate);
+                      return (
+                        <div key={idx} className={`flex flex-col gap-1.5 p-3 rounded-xl border border-dashed relative transition-all ${
+                          isDark 
+                            ? 'border-slate-800 bg-slate-950/40' 
+                            : 'border-slate-200 bg-white shadow-3xs'
+                        }`}>
+                          {videoRows.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = [...videoRows];
+                                updated.splice(idx, 1);
+                                handleUpdateVideoRows(updated);
+                              }}
+                              className="absolute top-2 right-2 text-rose-500 hover:text-rose-455 transition-colors p-1"
+                              title="Remove Row"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pr-4">
+                            <div className="space-y-1">
+                              <span className={`text-[9px] font-bold uppercase ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Item Description</span>
+                              <input
+                                type="text"
+                                placeholder="e.g. Rough Cut"
+                                value={row.desc}
+                                onChange={(e) => {
+                                  const updated = [...videoRows];
+                                  updated[idx].desc = e.target.value;
+                                  handleUpdateVideoRows(updated);
+                                }}
+                                required
+                                className={`w-full border rounded-lg px-2.5 py-1.5 text-xs focus:outline-none transition-all ${
+                                  isDark 
+                                    ? 'bg-slate-900 border-slate-800 text-slate-100 focus:border-emerald-500 placeholder-slate-600' 
+                                    : 'bg-white border-slate-200 text-slate-800 focus:border-emerald-600 placeholder-slate-400'
+                                }`}
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <span className={`text-[9px] font-bold uppercase ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Minutes</span>
+                              <input
+                                type="text"
+                                placeholder="e.g. 10 or 5+5"
+                                value={row.mins}
+                                onChange={(e) => {
+                                  const updated = [...videoRows];
+                                  updated[idx].mins = e.target.value;
+                                  handleUpdateVideoRows(updated);
+                                }}
+                                required
+                                className={`w-full border rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold focus:outline-none transition-all ${
+                                  isDark 
+                                    ? 'bg-slate-900 border-slate-800 text-slate-100 focus:border-emerald-500 placeholder-slate-600' 
+                                    : 'bg-white border-slate-205 text-slate-850 focus:border-emerald-600 placeholder-slate-400'
+                                }`}
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <span className={`text-[9px] font-bold uppercase ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Rate (₹ / min)</span>
+                              <input
+                                type="text"
+                                placeholder="e.g. 120"
+                                value={row.rate}
+                                onChange={(e) => {
+                                  const updated = [...videoRows];
+                                  updated[idx].rate = e.target.value;
+                                  handleUpdateVideoRows(updated);
+                                }}
+                                required
+                                className={`w-full border rounded-lg px-2.5 py-1.5 text-xs font-mono font-bold focus:outline-none transition-all ${
+                                  isDark 
+                                    ? 'bg-slate-900 border-slate-800 text-slate-100 focus:border-emerald-500 placeholder-slate-600' 
+                                    : 'bg-white border-slate-205 text-slate-850 focus:border-emerald-600 placeholder-slate-400'
+                                }`}
+                              />
+                            </div>
+                          </div>
+
+                          {(row.mins.trim() || row.rate.trim()) && (
+                            <div className="text-[10px] text-slate-500 font-bold font-mono pl-1 flex flex-wrap items-center gap-1.5">
+                              <span>Row Total:</span>
+                              <span className="text-emerald-500 font-mono">₹{calculatedRowTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              <span className={`text-[9px] font-normal font-sans ${isDark ? 'text-slate-450' : 'text-slate-500'}`}>({evaluateArithmetic(row.mins)} mins @ ₹{evaluateArithmetic(row.rate)}/min)</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleUpdateVideoRows([...videoRows, { desc: '', mins: '', rate: '' }]);
+                    }}
+                    className={`w-full py-2 border border-dashed rounded-xl flex items-center justify-center gap-1 text-[11px] font-bold transition-all cursor-pointer ${
+                      isDark 
+                        ? 'border-emerald-500/30 hover:border-emerald-400/50 hover:bg-emerald-950/20 text-emerald-400' 
+                        : 'border-emerald-200 hover:border-emerald-305 hover:bg-emerald-50 text-emerald-600 shadow-3xs'
+                    }`}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Item breakdown Row</span>
+                  </button>
+
+                  {/* Optional Thumbnail Charges */}
+                  <div className={`p-3 rounded-xl border relative transition-all ${
+                    isDark 
+                      ? 'border-slate-800 bg-slate-950/40' 
+                      : 'border-slate-205 bg-white shadow-3xs'
+                  }`}>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className={`text-[10px] font-bold uppercase ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Thumbnail Charges (Optional)</span>
+                        {formData.thumbnail_amount && Number(formData.thumbnail_amount) > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateThumbnailAmount('')}
+                            className="text-[10px] font-bold text-rose-500 hover:text-rose-400 transition-colors"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <span className={`absolute left-3 top-2 text-xs font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>₹</span>
+                        <input
+                          type="text"
+                          placeholder="e.g. 300 (Optional)"
+                          value={formData.thumbnail_amount || ''}
+                          onChange={(e) => handleUpdateThumbnailAmount(e.target.value)}
+                          className={`w-full border rounded-lg pl-6 pr-2.5 py-1.5 text-xs font-mono font-bold focus:outline-none transition-all ${
+                            isDark 
+                              ? 'bg-slate-900 border-slate-800 text-slate-100 focus:border-cyan-500 placeholder-slate-650' 
+                              : 'bg-white border-slate-205 text-slate-850 focus:border-indigo-500 placeholder-slate-400'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Amount input for non-Video sectors */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Sale Value (INR)</label>
+                    <div className="relative">
+                      <span className={`absolute left-3.5 top-2.5 text-lg font-bold ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>₹</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder="250.00"
+                        required
+                        value={formData.amount}
+                        onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                        className={`w-full border rounded-xl pl-8 pr-4 py-2.5 text-sm font-bold focus:outline-none transition-all ${
+                          isDark 
+                            ? 'bg-slate-950 border-slate-800 text-slate-100 focus:border-emerald-500 placeholder-slate-605' 
+                            : 'bg-slate-50 border-slate-205 text-slate-850 focus:border-emerald-600 placeholder-slate-400'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Description input for non-Video sectors */}
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Performance note / Details</label>
+                    <textarea
+                      placeholder="Scope of work details, deliverables, revision counts, parts replaced..."
+                      rows={2}
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      className={`w-full border rounded-xl px-4 py-2 text-xs focus:outline-none transition-all resize-none ${
+                        isDark 
+                          ? 'bg-slate-950 border-slate-800 text-slate-100 focus:border-emerald-500 placeholder-slate-650' 
+                          : 'bg-slate-50 border-slate-205 text-slate-805 focus:border-emerald-600 placeholder-slate-400'
+                      }`}
+                    />
+                  </div>
+                </>
+              )}
 
               {/* Configuration Settings Box */}
               <div className={`space-y-3.5 p-3.5 rounded-xl border transition-colors duration-200 ${
@@ -2786,7 +3543,18 @@ export default function App() {
                   <span className="text-[10.5px] font-bold text-slate-400">PAYMENT STATUS</span>
                   <select
                     value={formData.payment_status}
-                    onChange={(e: any) => setFormData({ ...formData, payment_status: e.target.value })}
+                    onChange={(e: any) => {
+                      const status = e.target.value;
+                      setFormData({ ...formData, payment_status: status });
+                      if (status === 'Partial' && partialPayments.length === 0) {
+                        setPartialPayments([{
+                          id: Math.random().toString(),
+                          amount: formData.received_amount || String((Number(formData.amount) || 0) / 2) || '',
+                          date: formData.sale_date || new Date().toISOString().split('T')[0],
+                          payment_method: formData.payment_method || 'UPI/Online'
+                        }]);
+                      }
+                    }}
                     className={`text-xs font-bold border rounded px-2.5 py-1.5 focus:outline-none ${
                       isDark 
                         ? 'bg-slate-950 text-white border-slate-850 focus:border-emerald-550' 
@@ -2794,26 +3562,18 @@ export default function App() {
                     }`}
                   >
                     <option value="Received" className={isDark ? 'bg-slate-950 text-white' : 'bg-white text-slate-800'}>Received</option>
+                    <option value="Partial" className={isDark ? 'bg-slate-950 text-white' : 'bg-white text-slate-800'}>Partial</option>
                     <option value="Pending" className={isDark ? 'bg-slate-950 text-white' : 'bg-white text-slate-800'}>Pending</option>
                   </select>
                 </div>
 
-              </div>
+                {formData.payment_status === 'Partial' && (
+                  <>
+                    <hr className={isDark ? "border-slate-850" : "border-slate-150"} />
+                    {renderPartialPaymentsFormSection('emerald')}
+                  </>
+                )}
 
-              {/* Description */}
-              <div className="space-y-1">
-                <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Performance note / Details</label>
-                <textarea
-                  placeholder="Scope of work details..."
-                  rows={2}
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  className={`w-full border rounded-xl px-4 py-2 text-xs focus:outline-none transition-all resize-none ${
-                    isDark 
-                      ? 'bg-slate-950 border-slate-800 text-slate-100 focus:border-emerald-500 placeholder-slate-650' 
-                      : 'bg-slate-50 border-slate-205 text-slate-805 focus:border-emerald-650 placeholder-slate-400'
-                  }`}
-                />
               </div>
 
               </div>
