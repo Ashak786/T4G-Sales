@@ -437,29 +437,29 @@ function rowToSale(row: any[]): Sale | null {
     id = row[8] || row[0];
   }
 
+  const descriptionStr = row[7] || '';
+  const thumbnailCharges = descriptionStr ? extractThumbnailAmount(descriptionStr) : 0;
+  const partialPayments = descriptionStr ? extractPartialPayments(descriptionStr) : undefined;
+
   // --- MERGE WITH LOCAL STORAGE FOR EXTRA ROBUSTNESS ---
   // If we have a local sale with the same ID, and it has custom payment_status or received_amount,
   // we should preserve that status if the spreadsheet layout returned a fallback or hasn't updated yet!
+  let finalPartialPayments = partialPayments;
   if (typeof window !== 'undefined') {
     try {
-      const localDataStr = localStorage.getItem('tech4geeky_sales_records');
+      const localDataStr = localStorage.getItem('tech4geeky_sales_data');
       if (localDataStr) {
         const localSales: Sale[] = JSON.parse(localDataStr);
         const matched = localSales.find(s => s.id === String(id));
         if (matched) {
-          // If the sheet status is 'Received' (default fallback) but local is 'Pending' or 'Partial',
-          // or if the sheet status matches but local has more detailed received_amount, use local!
-          if (row.length <= 9) {
-            // Spreadsheet does not support status, keep local status
-            payment_status = matched.payment_status || 'Received';
-            received_amount = matched.received_amount !== undefined ? matched.received_amount : (payment_status === 'Received' ? amount : 0);
-          } else {
-            // Even with newer layout, if sheet still has 'Received' but local is 'Pending'/'Partial',
-            // check if local was updated more recently or preserve local status if it was changed
-            if (payment_status === 'Received' && matched.payment_status && matched.payment_status !== 'Received') {
-              payment_status = matched.payment_status;
-              received_amount = matched.received_amount !== undefined ? matched.received_amount : 0;
-            }
+          if (matched.payment_status) {
+            payment_status = matched.payment_status;
+          }
+          if (matched.received_amount !== undefined) {
+            received_amount = matched.received_amount;
+          }
+          if (matched.partial_payments) {
+            finalPartialPayments = matched.partial_payments;
           }
         }
       }
@@ -467,10 +467,6 @@ function rowToSale(row: any[]): Sale | null {
       console.warn('Failed to merge with local storage in rowToSale:', e);
     }
   }
-
-  const descriptionStr = row[7] || '';
-  const thumbnailCharges = descriptionStr ? extractThumbnailAmount(descriptionStr) : 0;
-  const partialPayments = descriptionStr ? extractPartialPayments(descriptionStr) : undefined;
 
   return {
     id: String(id),
@@ -485,7 +481,7 @@ function rowToSale(row: any[]): Sale | null {
     payment_status,
     received_amount,
     thumbnail_charges: thumbnailCharges || undefined,
-    partial_payments: partialPayments
+    partial_payments: finalPartialPayments
   };
 }
 
