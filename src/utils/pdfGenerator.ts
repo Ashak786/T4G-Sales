@@ -314,7 +314,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   const lightGrayBg = [248, 250, 252];
 
   // Dynamic UPI payment string for real transactions
-  const upiUrl = `upi://pay?pa=ajaykumar6405-4@okicici&pn=TECH4GEEKY&am=${Math.round(sale.amount)}&cu=INR&tn=Invoice%20${invoiceNo}`;
+  const upiUrl = `upi://pay?pa=ajaykumar6405-4@okicici&pn=TECH4GEEKY&am=${Math.round(sale.amount)}&cu=INR&tn=Invoice%20${invoiceNo}&tr=${invoiceNo}`;
   const logoUrl = 'https://drive.google.com/open?id=1kVnKI3jYuJO4QkmBtig52cargj1MGR92&usp=drive_fs';
 
   // Load both resources in parallel to maximize speed

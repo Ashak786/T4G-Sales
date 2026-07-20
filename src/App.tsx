@@ -176,10 +176,10 @@ const serializeVideoEditingRows = (rows: Array<{ desc: string; mins: string; rat
     const minsVal = evaluateArithmetic(r.mins);
     const rateVal = evaluateArithmetic(r.rate);
     const subtotal = minsVal * rateVal;
-    return `${r.desc || 'Item'}: ${r.mins || '0'} mins @ ₹${r.rate || '0'}/min = ₹${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    return `${r.desc || 'Item'}: ${r.mins || '0'} mins @ ₹${r.rate || '0'}/min = ₹${Number(subtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   });
   if (thumbnailAmount && Number(thumbnailAmount) > 0) {
-    visibleTextLines.push(`Thumbnail Charges: ₹${Number(thumbnailAmount).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`);
+    visibleTextLines.push(`Thumbnail Charges: ₹${Number(thumbnailAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`);
   }
   const visibleText = visibleTextLines.join('\n');
   const metadataObj = {
@@ -314,10 +314,10 @@ const serializeSaleDescription = (
       const minsVal = evaluateArithmetic(r.mins);
       const rateVal = evaluateArithmetic(r.rate);
       const subtotal = minsVal * rateVal;
-      return `${r.desc || 'Video editing'} (${evaluateArithmetic(r.mins)} mins @ ₹${evaluateArithmetic(r.rate)}/min) = ₹${subtotal.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+      return `${r.desc || 'Video editing'} (${evaluateArithmetic(r.mins)} mins @ ₹${evaluateArithmetic(r.rate)}/min) = ₹${Number(subtotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
     });
     if (thumbnailAmount && Number(thumbnailAmount) > 0) {
-      visibleTextLines.push(`Thumbnail Charges: ₹${Number(thumbnailAmount).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`);
+      visibleTextLines.push(`Thumbnail Charges: ₹${Number(thumbnailAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`);
     }
     visibleText = visibleTextLines.join('\n');
     metadataObj.rows = videoRows;
@@ -549,7 +549,7 @@ export default function App() {
             Installment Breakdown (Multiple Payments)
           </label>
           <span className="text-[10px] font-bold text-slate-500">
-            Total Sale: <span className="font-mono">₹{totalAmountVal.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+            Total Sale: <span className="font-mono">₹{Number(totalAmountVal || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
           </span>
         </div>
 
@@ -656,12 +656,12 @@ export default function App() {
         <div className={`p-3 rounded-xl border ${isDark ? 'bg-slate-950 border-slate-850' : 'bg-white border-slate-150'} text-xs font-semibold space-y-1.5`}>
           <div className="flex justify-between items-center">
             <span className="text-slate-500">Total Received so far:</span>
-            <span className="text-emerald-500 font-mono font-bold">₹{currentSum.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+            <span className="text-emerald-500 font-mono font-bold">₹{Number(currentSum || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-slate-500">Remaining Balance:</span>
             <span className={`font-mono font-bold ${remainingBalance > 0 ? (isDark ? 'text-amber-400' : 'text-amber-600') : 'text-slate-500'}`}>
-              ₹{remainingBalance.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              ₹{Number(remainingBalance || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
             </span>
           </div>
         </div>
@@ -1641,7 +1641,7 @@ export default function App() {
                   <TrendingUp className="w-10 h-10" />
                 </div>
                 <p className={`text-[11px] font-semibold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Payments Received</p>
-                <p className={`text-xl font-black ${isDark ? 'text-emerald-400' : 'text-emerald-600'} mt-1`}>₹{stats.totalReceived.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                <p className={`text-xl font-black ${isDark ? 'text-emerald-400' : 'text-emerald-600'} mt-1`}>₹{Number(stats.totalReceived || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
                 <div className="mt-2 text-[10px] text-slate-400 flex items-center gap-1">
                   <span className={`${isDark ? 'text-emerald-400' : 'text-emerald-600'} font-bold`}>● Total Income</span>
                 </div>
@@ -1657,7 +1657,7 @@ export default function App() {
                   <FileText className="w-10 h-10" />
                 </div>
                 <p className={`text-[11px] font-semibold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Pending Balance</p>
-                <p className={`text-xl font-black ${isDark ? 'text-amber-400' : 'text-amber-600'} mt-1`}>₹{stats.totalPending.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                <p className={`text-xl font-black ${isDark ? 'text-amber-400' : 'text-amber-600'} mt-1`}>₹{Number(stats.totalPending || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
                 <div className="mt-2 text-[10px] text-slate-400 flex items-center gap-1">
                   <span className={`${isDark ? 'text-amber-400' : 'text-amber-600'} font-bold`}>⏳ Awaiting Clearance</span>
                 </div>
@@ -1705,7 +1705,7 @@ export default function App() {
                   {/* Dynamic Interactive Value */}
                   <div className="flex items-baseline gap-2 mt-1">
                     <span className={`text-2xl font-black font-mono tracking-tight ${isDark ? 'text-slate-100' : 'text-slate-900'}`}>
-                      ₹{(hoveredIndex !== null ? chartData[hoveredIndex]?.amount : (chartData[chartData.length - 1]?.amount || 0)).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                      ₹{(hoveredIndex !== null ? (chartData[hoveredIndex]?.amount || 0) : (chartData[chartData.length - 1]?.amount || 0)).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                     </span>
                     
                     {/* Growth Percentage Ticker Badge */}
@@ -2033,7 +2033,7 @@ export default function App() {
                         <span className={`font-semibold ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>{catKey}</span>
                       </div>
                       <div className="text-right border-0">
-                        <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>₹{catAmount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                        <span className={`font-bold ${isDark ? 'text-white' : 'text-slate-900'}`}>₹{Number(catAmount || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
                       </div>
                     </div>
                   </div>
@@ -2278,7 +2278,7 @@ export default function App() {
                 <div className="text-right">
                   <p className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Grand Total</p>
                   <p className={`text-base font-black ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>
-                    ₹{filteredTotal.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                    ₹{Number(filteredTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                   </p>
                 </div>
               </div>
@@ -2343,7 +2343,7 @@ export default function App() {
 
                     <div className="text-right flex flex-col items-end gap-1 flex-shrink-0">
                       <div className={`text-xs font-black ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                        ₹{sale.amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                        ₹{Number(sale.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                       </div>
                       <div className="flex items-center gap-1.5">
                         {(() => {
@@ -2356,7 +2356,7 @@ export default function App() {
                             const rec = sale.received_amount !== undefined ? sale.received_amount : (sale.amount / 2);
                             return (
                               <span className="text-[8.5px] px-1.5 py-0.2 bg-indigo-500/10 text-indigo-500 dark:text-indigo-400 font-bold rounded">
-                                Part: ₹{rec.toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+                                Part: ₹{Number(rec || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
                               </span>
                             );
                           }
@@ -2446,7 +2446,7 @@ export default function App() {
                 </div>
                 <div>
                   <p className={`text-[10.5px] uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{activeSale.category}</p>
-                  <p className={`text-lg font-black mt-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>₹{activeSale.amount.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
+                  <p className={`text-lg font-black mt-0.5 ${isDark ? 'text-white' : 'text-slate-900'}`}>₹{Number(activeSale.amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</p>
                 </div>
               </div>
 
@@ -2557,13 +2557,13 @@ export default function App() {
                       <div className="flex justify-between items-center text-slate-500">
                         <span>Total Paid:</span>
                         <span className="text-emerald-500 font-mono font-bold">
-                          ₹{totalPaid.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                          ₹{Number(totalPaid || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                         </span>
                       </div>
                       <div className="flex justify-between items-center text-slate-500">
                         <span>Pending Balance:</span>
                         <span className={`${pendingBalance > 0 ? (isDark ? 'text-amber-400' : 'text-amber-600') : 'text-slate-500'} font-mono font-bold`}>
-                          ₹{pendingBalance.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                          ₹{Number(pendingBalance || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
                         </span>
                       </div>
                     </div>
@@ -2948,7 +2948,7 @@ export default function App() {
                           {(row.mins.trim() || row.rate.trim()) && (
                             <div className="text-[10px] text-slate-500 font-bold font-mono pl-1 flex flex-wrap items-center gap-1.5">
                               <span>Row Total:</span>
-                              <span className="text-emerald-500 font-mono">₹{calculatedRowTotal.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                              <span className="text-emerald-500 font-mono">₹{Number(calculatedRowTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
                               <span className={`text-[9px] font-normal font-sans ${isDark ? 'text-slate-450' : 'text-slate-500'}`}>({evaluateArithmetic(row.mins)} mins @ ₹{evaluateArithmetic(row.rate)}/min)</span>
                             </div>
                           )}
@@ -3394,7 +3394,7 @@ export default function App() {
                           {(row.mins.trim() || row.rate.trim()) && (
                             <div className="text-[10px] text-slate-500 font-bold font-mono pl-1 flex flex-wrap items-center gap-1.5">
                               <span>Row Total:</span>
-                              <span className="text-emerald-500 font-mono">₹{calculatedRowTotal.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                              <span className="text-emerald-500 font-mono">₹{Number(calculatedRowTotal || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
                               <span className={`text-[9px] font-normal font-sans ${isDark ? 'text-slate-450' : 'text-slate-500'}`}>({evaluateArithmetic(row.mins)} mins @ ₹{evaluateArithmetic(row.rate)}/min)</span>
                             </div>
                           )}
