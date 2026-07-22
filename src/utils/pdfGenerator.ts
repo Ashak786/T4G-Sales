@@ -140,10 +140,23 @@ let cachedLogoBase64: string | null = null;
 // Fetch Google Drive logo and convert to Base64, with a robust fallback to local canvas generation
 export async function fetchLogoBase64(logoUrl: string): Promise<string> {
   if (cachedLogoBase64) return cachedLogoBase64;
-  // Generate the high-resolution dynamic canvas logo instantly.
-  // This bypasses the slow Google Drive request and avoids CORS blockers on Netlify.
-  cachedLogoBase64 = generateLogoBase64();
-  return cachedLogoBase64;
+  
+  try {
+    const directUrl = getGoogleDriveDirectUrl(logoUrl);
+    const res = await fetch(directUrl);
+    if (!res.ok) throw new Error('Failed to fetch logo');
+    const blob = await res.blob();
+    cachedLogoBase64 = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(blob);
+    });
+  } catch (error) {
+    console.error("Failed to fetch logo, falling back to generator:", error);
+    cachedLogoBase64 = generateLogoBase64();
+  }
+  return cachedLogoBase64 || '';
 }
 
 // Generate the beautiful pixel-perfect TECH 4 GEEKY Logo on-the-fly inside the client browser.
@@ -315,7 +328,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
 
   // Dynamic UPI payment string for real transactions
   const upiUrl = `upi://pay?pa=ajaykumar6405-4@okicici&pn=TECH4GEEKY&am=${Math.round(sale.amount)}&cu=INR&tn=Invoice%20${invoiceNo}&tr=${invoiceNo}`;
-  const logoUrl = 'https://drive.google.com/open?id=1kVnKI3jYuJO4QkmBtig52cargj1MGR92&usp=drive_fs';
+  const logoUrl = 'https://drive.google.com/file/d/1kVnKI3jYuJO4QkmBtig52cargj1MGR92/view?usp=drive_link';
 
   // Load both resources in parallel to maximize speed
   const [qrBase64, logoBase64] = await Promise.all([
@@ -586,6 +599,11 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   doc.text('UPI ID:', 20, detailsOffset + 12);
   doc.setTextColor(0, 102, 204); // Blue hyperlink color
   doc.text('ajaykumar6405-4@okicici', 48, detailsOffset + 12);
+  
+  doc.setTextColor(0, 0, 0);
+  doc.setFont('Helvetica', 'italic');
+  doc.setFontSize(7.5);
+  doc.text('(Click ID or scan QR code to pay)', 48, detailsOffset + 15);
   
   // Underline the UPI ID in Payment Details
   const upiWidthInDetails = doc.getTextWidth('ajaykumar6405-4@okicici');
