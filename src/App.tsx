@@ -1750,7 +1750,7 @@ export default function App() {
                 <svg 
                   className="w-full h-full overflow-visible" 
                   viewBox="0 0 500 180" 
-                  preserveAspectRatio="none"
+                  preserveAspectRatio="xMidYMid meet"
                 >
                   <defs>
                     {/* Neon Glowing Shadows for Trends */}

@@ -100,21 +100,25 @@ export function formatIndianDate(dateStr: string | undefined): string {
 
 // Fetch QR Code image as base64 to embed offline-friendly in the PDF
 async function fetchQRCodeBase64(upiString: string): Promise<string | null> {
+  if (cachedQRCodeBase64 && lastUpiString === upiString) return cachedQRCodeBase64;
+  
   const url = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(upiString)}&color=15-23-42`;
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error('Network response not ok');
     const blob = await res.blob();
-    return new Promise((resolve) => {
+    cachedQRCodeBase64 = await new Promise((resolve) => {
       const reader = new FileReader();
       reader.onloadend = () => resolve(reader.result as string);
       reader.onerror = () => resolve(null);
       reader.readAsDataURL(blob);
     });
+    lastUpiString = upiString;
   } catch (error) {
     console.warn("Failed to generate QR code dynamically:", error);
     return null;
   }
+  return cachedQRCodeBase64;
 }
 
 // Convert Google Drive open links into a direct cross-origin image download URL
@@ -136,6 +140,8 @@ export function getGoogleDriveDirectUrl(url: string): string {
 }
 
 let cachedLogoBase64: string | null = null;
+let cachedQRCodeBase64: string | null = null;
+let lastUpiString: string | null = null;
 
 // Fetch Google Drive logo and convert to Base64, with a robust fallback to local canvas generation
 export async function fetchLogoBase64(logoUrl: string): Promise<string> {
@@ -326,7 +332,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   const borderGrey = [180, 180, 180];
   const lightGrayBg = [248, 250, 252];
 
-  // Dynamic UPI payment string for real transactions
+  // UPI payment link
   const upiUrl = `upi://pay?pa=ajaykumar6405-4@okicici&pn=TECH4GEEKY&am=${Math.round(sale.amount)}&cu=INR&tn=Invoice%20${invoiceNo}&tr=${invoiceNo}`;
   const logoUrl = 'https://drive.google.com/file/d/1kVnKI3jYuJO4QkmBtig52cargj1MGR92/view?usp=drive_link';
 
@@ -612,7 +618,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   doc.line(48, detailsOffset + 12 + 0.4, 48 + upiWidthInDetails, detailsOffset + 12 + 0.4);
   
   // Make active clickable hyperlink on the UPI ID in Payment Details
-  doc.link(48, detailsOffset + 12 - 5, upiWidthInDetails + 5, 8, { url: upiUrl });
+  doc.link(48, detailsOffset + 12 - 6, upiWidthInDetails + 10, 10, { url: upiUrl });
 
   doc.setTextColor(120, 120, 120);
   doc.setFont('Helvetica', 'italic');
