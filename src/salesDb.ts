@@ -136,15 +136,15 @@ export function getLocalSales(): Sale[] {
   try {
     const rawData = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (!rawData) {
+      console.log('No data found, seeding...');
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(DEFAULT_SEED_SALES));
       return DEFAULT_SEED_SALES;
     }
+    console.log('Raw data found:', rawData);
     const parsed: Sale[] = JSON.parse(rawData);
+    console.log('Parsed data length:', parsed.length);
     const cleanList = parsed.filter(item => !item.id.toString().startsWith('seed-'));
-    if (cleanList.length === 0) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(DEFAULT_SEED_SALES));
-      return DEFAULT_SEED_SALES;
-    }
+    
     if (cleanList.length !== parsed.length) {
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(cleanList));
     }
