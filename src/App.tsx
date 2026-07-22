@@ -1095,7 +1095,6 @@ export default function App() {
           console.error('Background Sheet insertion error:', err);
           if (!handleAuthError(err)) {
             setErrorMessage('Failed to sync new sale to Google Sheets: ' + getFriendlyErrorMessage(err));
-            loadData(googleToken);
           }
         });
     }
@@ -1202,7 +1201,6 @@ export default function App() {
           console.error('Background Sheet update error:', err);
           if (!handleAuthError(err)) {
             setErrorMessage('Failed to sync update to Google Sheets: ' + getFriendlyErrorMessage(err));
-            loadData(googleToken);
           }
         });
     }
