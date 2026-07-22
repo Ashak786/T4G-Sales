@@ -54,14 +54,13 @@ function numberToRupeesWords(amount: number): string {
   return "Rupees " + words.trim().replace(/\s+/g, ' ') + " Only";
 }
 
-// Format amount to standard Indian Rupees format (without special Unicode characters like ₹ which Helvetica doesn't support)
-function formatRupees(amount: number): string {
-  const roundedAmount = Math.round(amount);
+// Format amount to standard Indian Rupees format
+function formatRupees(amount: number, fractionDigits: number = 0): string {
   const formatter = new Intl.NumberFormat('en-IN', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits
   });
-  return `Rs. ${formatter.format(roundedAmount)}`;
+  return `Rs. ${formatter.format(amount)}`;
 }
 
 // Helper function to format date to Indian Style (DD-MM-YYYY)
@@ -147,21 +146,25 @@ let lastUpiString: string | null = null;
 export async function fetchLogoBase64(logoUrl: string): Promise<string> {
   if (cachedLogoBase64) return cachedLogoBase64;
   
-  try {
-    const directUrl = getGoogleDriveDirectUrl(logoUrl);
-    const res = await fetch(directUrl);
-    if (!res.ok) throw new Error('Failed to fetch logo');
-    const blob = await res.blob();
-    cachedLogoBase64 = await new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => resolve(reader.result as string);
-      reader.onerror = () => resolve('');
-      reader.readAsDataURL(blob);
-    });
-  } catch (error) {
-    console.error("Failed to fetch logo, falling back to generator:", error);
-    cachedLogoBase64 = generateLogoBase64();
-  }
+  // Start background fetch, but return generator immediately
+  (async () => {
+    try {
+      const directUrl = getGoogleDriveDirectUrl(logoUrl);
+      const res = await fetch(directUrl);
+      if (res.ok) {
+        const blob = await res.blob();
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          cachedLogoBase64 = reader.result as string;
+        };
+        reader.readAsDataURL(blob);
+      }
+    } catch (error) {
+      console.error("Background fetch failed:", error);
+    }
+  })();
+
+  cachedLogoBase64 = generateLogoBase64();
   return cachedLogoBase64 || '';
 }
 
@@ -445,7 +448,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
     vRows.forEach((row, index) => {
       const minsVal = evaluateArithmetic(row.mins);
       const rateVal = evaluateArithmetic(row.rate);
-      const subtotal = Math.round(minsVal * rateVal);
+      const subtotal = minsVal * rateVal;
       
       const descText = row.desc ? row.desc.trim() : 'Video Editing Service';
       const mainLines = doc.splitTextToSize(descText, 76);
@@ -466,7 +469,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
         date: '',
         descriptionLines: doc.splitTextToSize('Thumbnail Charges', 76),
         minutes: '-',
-        amount: Math.round(thumbnailAmt)
+        amount: thumbnailAmt
       });
     }
   } else {
@@ -477,7 +480,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
       slNo: '1',
       date: formatIndianDate(sale.sale_date),
       descriptionLines: mainLines,
-      amount: Math.round(sale.amount)
+      amount: sale.amount
     });
   }
 
@@ -529,7 +532,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
     doc.setFont('Helvetica', 'bold');
     doc.setFontSize(9.5);
     doc.setTextColor(0, 0, 0);
-    const amtStr = formatRupees(item.amount);
+    const amtStr = formatRupees(item.amount, 2);
     doc.text(amtStr, 177.5, currentY + (rowHeight / 2) + 1, { align: 'center' });
 
     // Advance currentY
@@ -538,13 +541,18 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
 
 
   // --- 5. SUMMARY CELLS (ROUND OFF & TOTAL) ---
+  const itemTotal = itemsToPrint.reduce((sum, item) => sum + item.amount, 0);
+  const roundedTotal = Math.round(itemTotal);
+  const roundOff = roundedTotal - itemTotal;
+
   const roundOffY = currentY;
   doc.rect(startX, roundOffY, endX - startX, 8);
   doc.line(160, roundOffY, 160, roundOffY + 8);
   doc.setFont('Helvetica', 'normal');
   doc.setTextColor(0, 0, 0);
   doc.text('(-) Round off', 155, roundOffY + 5.5, { align: 'right' });
-  doc.text('-', 177.5, roundOffY + 5.5, { align: 'center' });
+  const roundOffStr = Math.abs(roundOff) < 0.01 ? '-' : formatRupees(roundOff, 2).replace('Rs. ', '');
+  doc.text(roundOffStr, 177.5, roundOffY + 5.5, { align: 'center' });
 
   const totalPayableY = roundOffY + 8;
   doc.rect(startX, totalPayableY, endX - startX, 8);
@@ -552,7 +560,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   doc.setFont('Helvetica', 'bold');
   doc.text('Total Payable', 155, totalPayableY + 5.5, { align: 'right' });
   
-  const formattedAmount = formatRupees(sale.amount);
+  const formattedAmount = formatRupees(roundedTotal, 2);
   doc.text(formattedAmount, 177.5, totalPayableY + 5.5, { align: 'center' });
 
 
@@ -603,27 +611,17 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
   doc.setTextColor(0, 0, 0);
   doc.setFont('Helvetica', 'bold');
   doc.text('UPI ID:', 20, detailsOffset + 12);
-  doc.setTextColor(0, 102, 204); // Blue hyperlink color
+  doc.setFont('Helvetica', 'bold');
   doc.text('ajaykumar6405-4@okicici', 48, detailsOffset + 12);
   
-  doc.setTextColor(0, 0, 0);
-  doc.setFont('Helvetica', 'italic');
-  doc.setFontSize(7.5);
-  doc.text('(Click ID or scan QR code to pay)', 48, detailsOffset + 15);
-  
-  // Underline the UPI ID in Payment Details
-  const upiWidthInDetails = doc.getTextWidth('ajaykumar6405-4@okicici');
-  doc.setDrawColor(0, 102, 204);
-  doc.setLineWidth(0.2);
-  doc.line(48, detailsOffset + 12 + 0.4, 48 + upiWidthInDetails, detailsOffset + 12 + 0.4);
-  
-  // Make active clickable hyperlink on the UPI ID in Payment Details
-  doc.link(48, detailsOffset + 12 - 6, upiWidthInDetails + 10, 10, { url: upiUrl });
-
+  // Rephrased instructions
   doc.setTextColor(120, 120, 120);
   doc.setFont('Helvetica', 'italic');
+  doc.setFontSize(8);
+  doc.text('(Copy UPI ID for your payment app)', 20, detailsOffset + 16);
+  
   doc.setFontSize(8.5);
-  doc.text('Due Date: 5 days from the date of this invoice.', 20, detailsOffset + 19);
+  doc.text('Due Date: 5 days from the date of this invoice.', 20, detailsOffset + 21);
 
   // Right Section: Scan & Pay QR Code Box
   doc.setDrawColor(borderGrey[0], borderGrey[1], borderGrey[2]);
@@ -631,7 +629,7 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
 
   const qrSize = 42;
   const qrX = 135 + (60 - qrSize) / 2; // Center horizontally in the 60-unit wide right section
-  const qrY = paymentBlockY + (52 - qrSize) / 2; // Center vertically in the 52-unit high box
+  const qrY = paymentBlockY + (52 - qrSize - 6) / 2; // Adjusted QR Y pos for text below
 
   if (qrBase64) {
     // Render working QR Code dynamically fetched from standard QR API
@@ -654,6 +652,12 @@ export async function generateInvoicePDF(sale: Sale, salesList: Sale[] = []): Pr
     // Make active clickable hyperlink on the QR area
     doc.link(qrX, qrY, qrSize, qrSize, { url: upiUrl });
   }
+  
+  // (Scan to Pay) Text below QR
+  doc.setTextColor(0, 0, 0);
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.text('(Scan to Pay)', qrX + qrSize / 2, qrY + qrSize + 4, { align: 'center' });
 
 
   // --- 8. FOOTER METADATA ---

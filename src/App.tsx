@@ -382,7 +382,6 @@ export default function App() {
   const [syncing, setSyncing] = useState<boolean>(false);
   const [dbSource, setDbSource] = useState<'sheets' | 'local'>('local');
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [sqlCopied, setSqlCopied] = useState<boolean>(false);
 
   // Google Connection / Auth state
   const [user, setUser] = useState<any>(null);
@@ -2726,8 +2725,8 @@ export default function App() {
               <div className="flex-1 overflow-y-auto p-5 space-y-4">
 
               {/* Client Name (First field) */}
-              <div className="space-y-1 relative">
-                <label className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Client identifier / Project</label>
+              <div className="space-y-2 relative p-4 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-100 dark:border-slate-800">
+                <label className="text-xs font-semibold text-slate-600 dark:text-slate-400">Client Name or Project</label>
                 <input
                   type="text"
                   placeholder="e.g. Ramesh Dev (Tech Vlog)"
@@ -2739,10 +2738,10 @@ export default function App() {
                   }}
                   onFocus={() => setShowAddSuggestions(true)}
                   onBlur={() => setTimeout(() => setShowAddSuggestions(false), 200)}
-                  className={`w-full border rounded-xl px-4 py-2.5 text-xs font-medium focus:outline-none transition-all ${
+                  className={`w-full border rounded-lg px-4 py-3 text-sm focus:outline-none transition-all ${
                     isDark 
-                      ? 'bg-slate-950 border-slate-800 text-slate-100 focus:border-cyan-500 placeholder-slate-650' 
-                      : 'bg-slate-50 border-slate-205 text-slate-800 focus:border-indigo-500 placeholder-slate-400'
+                      ? 'bg-slate-900 border-slate-700 text-white focus:border-cyan-500 placeholder-slate-500' 
+                      : 'bg-white border-slate-300 text-slate-900 focus:border-indigo-500 placeholder-slate-400'
                   }`}
                 />
 
